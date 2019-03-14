@@ -32,7 +32,7 @@ int main(int argc, char *argv[]) {
 	//TODO: read input image file (either binary or plain text PPM)
 	// For plain files
 	printf("Reading a file");
-	FILE *fp;
+	FILE *fp=fopen("DogPlainText2048x2048.ppm","r");
 	int x,y,char_len;
 	char ch,ch1;
 	ch=fgetc(fp);
@@ -68,6 +68,7 @@ int main(int argc, char *argv[]) {
 			//getchar();    
 		}
 	}
+	fclose(fp);
 	printf("\n%d\n",c);
 	printf("STARTIG THE MOSAIC OPERATION\n\n\n");
 	for(int i=0; i<x; i+=c){
