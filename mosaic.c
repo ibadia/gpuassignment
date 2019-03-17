@@ -104,11 +104,11 @@ void writing_binary_file(pixel* (*matrix)[x]){
 	}
 	fclose(outfile);
 }
-void calculate_mosaic_CPU(pixel* (*matrix)[x], float *gr,float *gg, float *gb){
+void calculate_mosaic_CPU(pixel* (*matrix)[x], int *gr,int *gg, int *gb){
 	printf("STARTING THE MOSAIC OPERATION USING CPU APPROACH\n\n\n");
-	float global_average_r=0;
-	float global_average_g=0;
-	float global_average_b=0;
+	int global_average_r=0;
+	int global_average_g=0;
+	int global_average_b=0;
 	for(int i=0; i<x; i+=c){
 		for(int j=0; j<y; j+=c){
 			int average_r, average_b, average_g;
@@ -152,11 +152,11 @@ void calculate_mosaic_CPU(pixel* (*matrix)[x], float *gr,float *gg, float *gb){
 
 
 
-void calculate_mosaic_OPENMP(pixel* (*matrix)[x], float *gr,float *gg, float *gb){
+void calculate_mosaic_OPENMP(pixel* (*matrix)[x], int *gr,int *gg, int *gb){
 	printf("STARTING THE MOSAIC OPERATION USING OPENMP APPROACH\n\n\n");
-	float global_average_r=0;
-	float global_average_g=0;
-	float global_average_b=0;
+	int global_average_r=0;
+	int global_average_g=0;
+	int global_average_b=0;
 
 	#pragma omp parallel for
 	for(int i=0; i<x; i+=c){
@@ -178,8 +178,6 @@ void calculate_mosaic_OPENMP(pixel* (*matrix)[x], float *gr,float *gg, float *gb
 					cell_count++;
 				}
 			}
-	
-		
 			average_b=average_b/(cell_count);
 			average_r=average_r/(cell_count);
 			average_g=average_g/(cell_count);
@@ -278,7 +276,7 @@ int main(int argc, char *argv[]) {
 			double start_time = omp_get_wtime();
 			
 			//TODO: calculate the average colour value
-			float gr,gg,gb;
+			int gr,gg,gb;
 			calculate_mosaic_CPU(matrix,&gr,&gg,&gb);
 			double time = omp_get_wtime() - start_time;
 			if (OUTPUT_FORMAT_BINARY){
@@ -294,7 +292,7 @@ int main(int argc, char *argv[]) {
 
 			// Output the average colour value for the image
 
-			printf("CPU Average image colour red = %f, green = %f, blue = %f \n",gr,gg,gb);
+			printf("CPU Average image colour red = %d, green = %d, blue = %d \n",gr,gg,gb);
 
 			//TODO: end timing here
 		
@@ -307,7 +305,7 @@ int main(int argc, char *argv[]) {
 			double start_time = omp_get_wtime();
 			printf("USING OPENMP");
 			//TODO: calculate the average colour value
-			float gr,gg,gb;
+			int gr,gg,gb;
 			calculate_mosaic_OPENMP(matrix, &gr, &gg,&gb);
 			double time = omp_get_wtime() - start_time;
 			if (OUTPUT_FORMAT_BINARY){
@@ -321,7 +319,7 @@ int main(int argc, char *argv[]) {
 			
 
 			// Output the average colour value for the image
-			printf("OPENMP Average image colour red = %f, green = %f, blue = %f \n",gr,gg,gb);
+			printf("OPENMP Average image colour red = %d, green = %d, blue = %d \n",gr,gg,gb);
 
 			//TODO: end timing here
 			
