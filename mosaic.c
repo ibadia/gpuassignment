@@ -41,6 +41,7 @@ void get_image_dimensions(FILE *fp, int *x, int *y){
 	char ch,ch1;
 	ch=fgetc(fp);
 	ch1=fgetc(fp);
+	
 	while (fgetc(fp)!='\n'){
 		continue;
 	}
@@ -53,6 +54,10 @@ void get_image_dimensions(FILE *fp, int *x, int *y){
 	ungetc(cc,fp);
 	fscanf(fp, "%d %d", x,y);
 	fscanf(fp, "%d",&char_len);
+	
+	
+	ch1=ch+1;
+	ch=ch1+1;
 }
 
 void writing_plain_text_file(pixel* (*matrix)[x]){
@@ -205,6 +210,8 @@ int check_file_mode(){
 	if (ch1=='3'){
 		return 1;	
 	}
+	ch1=ch+1;
+	ch=ch1+2;
 	return 0;
 }
 
@@ -213,7 +220,7 @@ int main(int argc, char *argv[]) {
 	if (process_command_line(argc, argv) == FAILURE)
 		return 1;
 	//TODO: read input image file (either binary or plain text PPM)
-	int check_sum=0;
+	
 	
 
 	int file_mode=check_file_mode();//checks the filemode 	
@@ -230,6 +237,7 @@ int main(int argc, char *argv[]) {
 				fscanf(fp,"%d %d %d", &r, &g, &b);
 				char useless;
 				useless=getc(fp);
+				useless=1+useless;
 				matrix[i][j]->r=r;
 				matrix[i][j]->g=g;
 				matrix[i][j]->b=b;
@@ -240,7 +248,7 @@ int main(int argc, char *argv[]) {
 		printf("The input image is PLAIN TEXT\n");
 		fclose(fp);
 		FILE *fp_binary=fopen(input_file_name,"rb");
-		char buff;
+		//char buff;
 		get_image_dimensions(fp_binary, &x, &y);
 		unsigned char currentPixel[3];
 		unsigned char a;
