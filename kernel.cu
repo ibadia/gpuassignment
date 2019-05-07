@@ -23,6 +23,8 @@ void checkCUDAError(const char*);
 char *input_file_name;//inputfilename string 
 char *output_file_name;
 __device__ int c = 0;
+__device__ int row = 0;
+__device__ int column = 0;
 
 void get_image_dimensions(FILE *fp, int *x, int *y) {// to get the dimensions of the image
 	int char_len;
@@ -48,36 +50,38 @@ void get_image_dimensions(FILE *fp, int *x, int *y) {// to get the dimensions of
 	ch = ch1 + 1;
 }
 
-__global__ void change_c_value(int newc){
+__global__ void change_c_value(int newc, int r, int co) {
 	c = newc;
+	row = r;
+	column = co;
 }
 __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda)
 {
 
-	int index_x =c*(blockDim.x*blockIdx.x + threadIdx.x);
-	int index_y = c*(blockDim.y*blockIdx.y + threadIdx.y);
-	int offset= (index_x * 16) + index_y;
-	
+	int index_x = c * (blockDim.x*blockIdx.x + threadIdx.x);
+	int index_y = c * (blockDim.y*blockIdx.y + threadIdx.y);
+	int offset = (index_x * 16) + index_y;
+
 	int sum_red = 0;
 	int sum_green = 0;
 	int sum_blue = 0;
-	for (int i = index_x; i < index_x+c; i++) {
+	for (int i = index_x; i < index_x + c; i++) {
 		for (int j = index_y; j < index_y + c; j++) {
-			int off =(i*2048)+j ;
-			sum_red+=red_cuda[off];
+			int off = (i * column) + j;
+			sum_red += red_cuda[off];
 			sum_green += green_cuda[off];
 			sum_blue += blue_cuda[off];
 		}
 	}
 	for (int i = index_x; i < index_x + c; i++) {
 		for (int j = index_y; j < index_y + c; j++) {
-			int off = (i * 2048) + j;
-			red_cuda[off] = sum_red/(c*c);
+			int off = (i * column) + j;
+			red_cuda[off] = sum_red / (c*c);
 			green_cuda[off] = sum_green / (c*c);
 			blue_cuda[off] = sum_blue / (c*c);
 		}
 	}
-	
+
 }
 
 
@@ -92,21 +96,17 @@ int main(int argc, char *argv[])
 	int x, y;
 	get_image_dimensions(fp, &x, &y);
 	printf("%d %d\n\n", x, y);
-	int* red = (int*)malloc(x*y*sizeof(int));
-	int* green = (int*)malloc(x *y* sizeof(int));
-	int* blue = (int*)malloc(x *y* sizeof(int));
+	int* red = (int*)malloc(x*y * sizeof(int));
+	int* green = (int*)malloc(x *y * sizeof(int));
+	int* blue = (int*)malloc(x *y * sizeof(int));
 	int *copy_red = red;
 	int *copy_green = green;
 	int *copy_blue = blue;
 
 
-	int* red_cuda,*green_cuda, *blue_cuda;
+	int* red_cuda, *green_cuda, *blue_cuda;
 
 
-	
-
-
-	//free(copy_red); in the end
 	for (int i = 0; i<x; i++) {
 		for (int j = 0; j<y; j++) {
 			int r, g, b;
@@ -121,23 +121,16 @@ int main(int argc, char *argv[])
 		}
 	}
 	fclose(fp);
-/*
-	for (int i = 0; i < x; i++) {
-		for (int j = 0; j < y; j++) {
-			int position = (i * y) + j;
-			printf("%d ", red[position]);
-		}
-		printf("\n");
-	}*/
+	
 	printf("____________________________________________\n");
 
 
 	int size_of_image = x * y * sizeof(int);
 	printf("%d", size_of_image);
-	
 
 
-	cudaMalloc((void **)&red_cuda,size_of_image);
+
+	cudaMalloc((void **)&red_cuda, size_of_image);
 	cudaMalloc((void **)&green_cuda, size_of_image);
 	cudaMalloc((void **)&blue_cuda, size_of_image);
 
@@ -153,14 +146,16 @@ int main(int argc, char *argv[])
 	/* Configure the grid of thread blocks and run the GPU kernel */
 	printf("hello");
 	getchar();
-	dim3 blocksPerGrid(5, 4, 1);
-	dim3 threadsPerBlock(4, 4, 1);
+	
 	int c = 64;
-	change_c_value << <blocksPerGrid, threadsPerBlock >> > (c);
+	dim3 blocksPerGrid(1,1, 1);
+	dim3 threadsPerBlock(4, 4, 1);
 	
-	
+	change_c_value << <blocksPerGrid, threadsPerBlock >> > (c,x,y);
+
+
 	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda);
-	
+
 
 	/* wait for all threads to complete */
 	cudaThreadSynchronize();
@@ -172,16 +167,16 @@ int main(int argc, char *argv[])
 	cudaMemcpy(blue, blue_cuda, size_of_image, cudaMemcpyDeviceToHost);
 	checkCUDAError("Result transfer to host");
 
-	
+
 	printf("\n_______________________\n\n\n");
 
 	/*
 	for(int i = 0; i < x; i++) {
-		for (int j = 0; j < y; j++) {
-		int position = (i * y) + j;
-			printf("%d %d %d    ", red[position], green[position], blue[position]);
-		}
-		printf("\n");
+	for (int j = 0; j < y; j++) {
+	int position = (i * y) + j;
+	printf("%d %d %d    ", red[position], green[position], blue[position]);
+	}
+	printf("\n");
 	}*/
 
 	output_file_name = "out.ppm";
@@ -207,7 +202,7 @@ int main(int argc, char *argv[])
 		}
 	}
 	fclose(outfile);
-	
+
 
 
 	/* free device memory */
@@ -223,8 +218,8 @@ int main(int argc, char *argv[])
 
 
 	getchar();
-	
-	return 0;	
+
+	return 0;
 }
 
 
