@@ -22,6 +22,7 @@ void checkCUDAError(const char*);
 
 char *input_file_name;//inputfilename string 
 char *output_file_name;
+__device__ int c = 0;
 
 void get_image_dimensions(FILE *fp, int *x, int *y) {// to get the dimensions of the image
 	int char_len;
@@ -47,36 +48,35 @@ void get_image_dimensions(FILE *fp, int *x, int *y) {// to get the dimensions of
 	ch = ch1 + 1;
 }
 
-
-__global__ void image_func(int *red_cuda)
+__global__ void change_c_value(int newc){
+	c = newc;
+}
+__global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda)
 {
 
-	int index_x =blockDim.x*blockIdx.x + threadIdx.x;
-	int index_y = blockDim.y*blockIdx.y + threadIdx.y;
+	int index_x =c*(blockDim.x*blockIdx.x + threadIdx.x);
+	int index_y = c*(blockDim.y*blockIdx.y + threadIdx.y);
 	int offset= (index_x * 16) + index_y;
-
-	red_cuda[offset] = 24;
-
-
-
 	
-	//printf("x is %d y is %d \n", x, y);
-	//int index = threadIdx.x;
-	
-	/*
-	for (int i = 0; i < 2; i++) {
-		for (int j = 0; j < 2; j++) {
-			int position =  (i * 16) + j;
-			sum+=red_cuda[position]
+	int sum_red = 0;
+	int sum_green = 0;
+	int sum_blue = 0;
+	for (int i = index_x; i < index_x+c; i++) {
+		for (int j = index_y; j < index_y + c; j++) {
+			int off =(i*2048)+j ;
+			sum_red+=red_cuda[off];
+			sum_green += green_cuda[off];
+			sum_blue += blue_cuda[off];
 		}
 	}
-
-	for (int i = 0; i < 2; i++) {
-		for (int j = 0; j < 2; j++) {
-			int position = (i * 16) + j;
-			red_cuda[position] = sum;
+	for (int i = index_x; i < index_x + c; i++) {
+		for (int j = index_y; j < index_y + c; j++) {
+			int off = (i * 2048) + j;
+			red_cuda[off] = sum_red/(c*c);
+			green_cuda[off] = sum_green / (c*c);
+			blue_cuda[off] = sum_blue / (c*c);
 		}
-	}*/
+	}
 	
 }
 
@@ -86,30 +86,24 @@ __global__ void image_func(int *red_cuda)
 int main(int argc, char *argv[])
 {
 	//reading the input file
-	input_file_name = "SheffieldPlainText16x16.ppm";
+	input_file_name = "DogPlainText2048x2048.ppm";
 	printf("%s", input_file_name);
 	FILE *fp = fopen(input_file_name, "r");
 	int x, y;
 	get_image_dimensions(fp, &x, &y);
-	printf("%d %d", x, y);
+	printf("%d %d\n\n", x, y);
 	int* red = (int*)malloc(x*y*sizeof(int));
 	int* green = (int*)malloc(x *y* sizeof(int));
 	int* blue = (int*)malloc(x *y* sizeof(int));
-
-	int* red_cuda;
-
-
 	int *copy_red = red;
 	int *copy_green = green;
 	int *copy_blue = blue;
 
 
-	int* out_red = (int*)malloc(x*y* sizeof(int));
-	int* out_green = (int*)malloc(x*y* sizeof(int));
-	int* out_blue = (int*)malloc(x*y* sizeof(int));
-	int *out_copy_red = red;
-	int *out_copy_green = green;
-	int *out_copy_blue = blue;
+	int* red_cuda,*green_cuda, *blue_cuda;
+
+
+	
 
 
 	//free(copy_red); in the end
@@ -121,41 +115,52 @@ int main(int argc, char *argv[])
 			useless = getc(fp);
 			useless = 1 + useless;
 			int position = (i * y) + j;
-
 			red[position] = r;
 			green[position] = g;
 			blue[position] = b;
 		}
 	}
 	fclose(fp);
-
+/*
 	for (int i = 0; i < x; i++) {
 		for (int j = 0; j < y; j++) {
 			int position = (i * y) + j;
 			printf("%d ", red[position]);
 		}
 		printf("\n");
-	}
+	}*/
 	printf("____________________________________________\n");
 
 
 	int size_of_image = x * y * sizeof(int);
 	printf("%d", size_of_image);
+	
 
 
 	cudaMalloc((void **)&red_cuda,size_of_image);
+	cudaMalloc((void **)&green_cuda, size_of_image);
+	cudaMalloc((void **)&blue_cuda, size_of_image);
+
 	checkCUDAError("Memory allocation");
 
 	/* copy host input to device input */
 	cudaMemcpy(red_cuda, red, size_of_image, cudaMemcpyHostToDevice);
+	cudaMemcpy(green_cuda, green, size_of_image, cudaMemcpyHostToDevice);
+	cudaMemcpy(blue_cuda, blue, size_of_image, cudaMemcpyHostToDevice);
 	checkCUDAError("Input transfer to device");
 
 
 	/* Configure the grid of thread blocks and run the GPU kernel */
-	dim3 blocksPerGrid(1, 1, 1);
+	printf("hello");
+	getchar();
+	dim3 blocksPerGrid(5, 4, 1);
 	dim3 threadsPerBlock(4, 4, 1);
-	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda);
-
+	int c = 64;
+	change_c_value << <blocksPerGrid, threadsPerBlock >> > (c);
+	
+	
+	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda);
+	
 
 	/* wait for all threads to complete */
 	cudaThreadSynchronize();
@@ -163,91 +168,63 @@ int main(int argc, char *argv[])
 
 	/* copy the gpu output back to the host */
 	cudaMemcpy(red, red_cuda, size_of_image, cudaMemcpyDeviceToHost);
+	cudaMemcpy(green, green_cuda, size_of_image, cudaMemcpyDeviceToHost);
+	cudaMemcpy(blue, blue_cuda, size_of_image, cudaMemcpyDeviceToHost);
 	checkCUDAError("Result transfer to host");
 
 	
 	printf("\n_______________________\n\n\n");
 
-
+	/*
 	for(int i = 0; i < x; i++) {
 		for (int j = 0; j < y; j++) {
 		int position = (i * y) + j;
-			printf("%d ", red[position]);
+			printf("%d %d %d    ", red[position], green[position], blue[position]);
 		}
 		printf("\n");
-	}
+	}*/
 
+	output_file_name = "out.ppm";
+	FILE *outfile = fopen(output_file_name, "w");
+	fprintf(outfile, "P3\n");// since it is plain text
+	fprintf(outfile, "# COM4521 Assignment test output\n");
+	fprintf(outfile, "%d\n%d\n", x, y);
+	fprintf(outfile, "255");//by default
+	for (int i = 0; i<x; i++) {
+		fprintf(outfile, "\n");
+		for (int j = 0; j<y; j++) {
+			int r, g, b;
+			int position = (i*y) + j;
+			r = red[position];
+			g = green[position];
+			b = blue[position];
+			if (j == (y - 1)) {
+				fprintf(outfile, "%d %d %d", r, g, b);//for last value no need to add tab
+			}
+			else {
+				fprintf(outfile, "%d %d %d\t", r, g, b);
+			}
+		}
+	}
+	fclose(outfile);
 	
+
+
 	/* free device memory */
 	cudaFree(red_cuda);
+	cudaFree(green_cuda);
+	cudaFree(blue_cuda);
 	checkCUDAError("Free memory");
 
 	/* free host buffers */
 	free(copy_red);
+	free(copy_green);
+	free(copy_blue);
 
 
 	getchar();
 	
-	return 0;
-
-
-	
-	//int *h_input, *h_output;
-//	int *d_input, *d_output;
-	//unsigned int size;
-	//int i;
-
-
-
-
-//	size = N * sizeof(int);
-
-	/* allocate the host memory */
-//	h_input = (int *)malloc(size);
-	//h_output = (int *)malloc(size);
-
-	/* allocate device memory */
-	//cudaMalloc((void **)&d_input, size);
-	//cudaMalloc((void **)&d_output, size);
-//	checkCUDAError("Memory allocation");
-
-	/* read the encryted text */
-	//read_encrypted_file(h_input);
-
-	/* copy host input to device input */
-	//cudaMemcpy(d_input, h_input, size, cudaMemcpyHostToDevice);
-	//checkCUDAError("Input transfer to device");
-
-	/* Configure the grid of thread blocks and run the GPU kernel */
-	//dim3 blocksPerGrid(8, 1, 1);
-	//dim3 threadsPerBlock(N / 8, 1, 1);
-	//affine_decrypt_multiblock << <blocksPerGrid, threadsPerBlock >> >(d_input, d_output);
-
-	/* wait for all threads to complete */
-	//cudaThreadSynchronize();
-	//checkCUDAError("Kernel execution");
-
-	/* copy the gpu output back to the host */
-//	cudaMemcpy(h_output, d_output, size, cudaMemcpyDeviceToHost);
-	//checkCUDAError("Result transfer to host");
-
-	/* print out the result to screen */
-	//for (i = 0; i < N; i++) {
-	//	printf("%c", (char)h_output[i]);
-	//}
-	//printf("\n");
-
-	/* free device memory */
-	//cudaFree(d_input);
-	//cudaFree(d_output);
-	//checkCUDAError("Free memory");
-
-	/* free host buffers */
-	//free(h_input);
-	//free(h_output);
-
-	//return 0;
-	
+	return 0;	
 }
 
 
