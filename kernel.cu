@@ -18,9 +18,9 @@ void print_help();
 int process_command_line(int argc, char *argv[]);
 
 typedef enum MODE { CPU, OPENMP, CUDA, ALL } MODE;
-__device__ int cc = 0;
-__device__ int row = 0;
-__device__ int column = 0;
+//__device__ int cc = 0;
+//__device__ int row = 0;
+//__device__ int column = 0;
 unsigned int c = 0;
 MODE execution_mode = CPU;
 int x, y;
@@ -40,7 +40,7 @@ typedef struct pixel {// pixel structure to save each cell Red,green,blue value
 void checkCUDAError(const char*);
 //function to check whether the input file is in binary mode or plain text
 int check_file_mode() {
-	FILE *check_file = fopen(input_file_name, "rb");	
+	FILE *check_file = fopen(input_file_name, "rb");
 	char ch1, ch;//for reading the mode
 	ch = fgetc(check_file);//getting the first character
 	ch1 = fgetc(check_file);//getting the second character
@@ -128,7 +128,7 @@ void writing_plain_text_file(int *red, int *green, int *blue) {
 		fprintf(outfile, "\n");
 		for (int j = 0; j<y; j++) {
 			int r, g, b;
-			int position= (i * y) + j;
+			int position = (i * y) + j;
 			r = red[position];
 			g = green[position];
 			b = blue[position];
@@ -267,7 +267,7 @@ void calculate_mosaic_OPENMP(int *red, int *green, int *blue, int *gr, int *gg, 
 			for (int ii = i; ii< (i + c) && ii<x; ii++) {
 				for (int jj = j; jj<(j + c) && jj<y; jj++) {
 					int position = (ii * y) + jj;
-					
+
 					red[position] = average_r;
 					blue[position] = average_b;
 					green[position] = average_g;
@@ -282,22 +282,54 @@ void calculate_mosaic_OPENMP(int *red, int *green, int *blue, int *gr, int *gg, 
 	*gr = global_average_r;
 	*gb = global_average_b;
 }
-
+/*
 __global__ void change_c_value(int newc, int r, int co) {
 	cc = newc;
 	row = r;
 	column = co;
-}
-__global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda)
+}*/
+__global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc)
 {
+	const int ccc = cc * cc;
+	extern __shared__ int redarray[];
+	extern __shared__ int greenarray[];
+	extern __shared__ int bluearray[];
+	
+	__shared__ int avg_r;
+	__shared__ int avg_b;
+	__shared__ int avg_g;
+	//int index_x = cc * (blockDim.x*blockIdx.x + threadIdx.x);
+	//int index_y = cc * (blockDim.y*blockIdx.y + threadIdx.y);
 
-	int index_x = cc * (blockDim.x*blockIdx.x + threadIdx.x);
-	int index_y = cc * (blockDim.y*blockIdx.y + threadIdx.y);
-	int offset = (index_x * 16) + index_y;
 
+	int index_x = blockDim.x*blockIdx.x + threadIdx.x;
+	int index_y =  blockDim.y*blockIdx.y + threadIdx.y;
+	int position = (index_x*column) + index_y;
+	int p2 = (threadIdx.x*blockDim.y + threadIdx.y);
+
+	
+	redarray[p2] = red_cuda[position];
+	greenarray[p2] = green_cuda[position];
+	bluearray[p2] = blue_cuda[position];
+	__syncthreads();
+
+	avg_r += redarray[p2];
+	avg_g += greenarray[p2];
+	avg_b += bluearray[p2];
+	__syncthreads();
+	
+	red_cuda[position] = avg_r/(cc*cc);
+	green_cuda[position] = avg_g/(cc*cc);
+	blue_cuda[position] = avg_b/(cc*cc);
+
+
+
+
+	/*
 	int sum_red = 0;
 	int sum_green = 0;
 	int sum_blue = 0;
+
 	for (int i = index_x; i < index_x + cc; i++) {
 		for (int j = index_y; j < index_y + cc; j++) {
 			int off = (i * column) + j;
@@ -314,6 +346,7 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda)
 			blue_cuda[off] = sum_blue / (cc*cc);
 		}
 	}
+	*/
 
 }
 
@@ -343,14 +376,20 @@ void cuda_mode(int *red, int *green, int *blue) {
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	cudaEventRecord(start);
-	
-	dim3 blocksPerGrid(16, 16, 1);
+
+	int blockdimx = x / c;
+	int blockdimy = y / c;
+	printf("\nThe block dimensions set are as follows: %d %d\n", blockdimx, blockdimy);
+	printf("The threads per block is : %d %d\n", c,c);
+
+
+	dim3 blocksPerGrid(blockdimx, blockdimy, 1);
 	dim3 threadsPerBlock(c, c, 1);
 
-	change_c_value << <blocksPerGrid, threadsPerBlock >> > (c, x, y);
+	//change_c_value << <blocksPerGrid, threadsPerBlock >> > (c, x, y);
 
 
-	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda);
+	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda, x,y,c);
 
 
 	/* wait for all threads to complete */
@@ -360,7 +399,7 @@ void cuda_mode(int *red, int *green, int *blue) {
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
 	float milliseconds = 0;
-	cudaEventElapsedTime(&milliseconds,start, stop);
+	cudaEventElapsedTime(&milliseconds, start, stop);
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
 
@@ -398,6 +437,7 @@ int main(int argc, char *argv[]) {
 	if (process_command_line(argc, argv) == FAILURE)
 		return 1;
 	int file_mode = check_file_mode();//checks the filemode 
+	printf("Reading image");
 	FILE *fp = fopen(input_file_name, "r");
 	get_image_dimensions(fp, &x, &y);
 
@@ -417,13 +457,13 @@ int main(int argc, char *argv[]) {
 		printf("the image is binary\n");
 		read_binary_image(red, green, blue);
 		//print_image_pretty(red, green, blue);
-		
+
 	}
 	fclose(fp);
-	
 
 
-	
+
+
 
 
 	//TODO: execute the mosaic filter based on the mode
@@ -436,9 +476,9 @@ int main(int argc, char *argv[]) {
 		//TODO: calculate the average colour value
 		int gr, gg, gb;
 		printf("\n");
-	//	print_image_pretty(red, green, blue);
+		//	print_image_pretty(red, green, blue);
 		printf("this is the image");
-		calculate_mosaic_CPU(red,green,blue, &gr, &gg, &gb);
+		calculate_mosaic_CPU(red, green, blue, &gr, &gg, &gb);
 		double time = omp_get_wtime() - start_time;
 		if (OUTPUT_FORMAT_BINARY) {
 			printf("Writing Binary File: \n");
@@ -446,7 +486,7 @@ int main(int argc, char *argv[]) {
 		}
 		else {
 			printf("Writing plain text: \n");
-		//	print_image_pretty(red, green, blue);
+			//	print_image_pretty(red, green, blue);
 			writing_plain_text_file(red, green, blue);
 		}
 
@@ -462,7 +502,7 @@ int main(int argc, char *argv[]) {
 		printf("USING OPENMP");
 		//TODO: calculate the average colour value
 		int gr, gg, gb;
-		calculate_mosaic_OPENMP(red, green,blue, &gr, &gg, &gb);
+		calculate_mosaic_OPENMP(red, green, blue, &gr, &gg, &gb);
 		double time = omp_get_wtime() - start_time;
 		if (OUTPUT_FORMAT_BINARY) {
 			printf("Writing Binary File: \n");
@@ -470,7 +510,7 @@ int main(int argc, char *argv[]) {
 		}
 		else {
 			printf("Writing plain text: \n");
-			writing_plain_text_file(red,green,blue);
+			writing_plain_text_file(red, green, blue);
 		}
 		printf("OPENMP Average image colour red = %d, green = %d, blue = %d \n", gr, gg, gb);
 		printf("OPENMP mode execution time took %f s and  %f ms\n", time, time * 1000);
@@ -481,8 +521,9 @@ int main(int argc, char *argv[]) {
 		//print_image_pretty(red, green, blue);
 		printf("\n\n");
 
-		
+		printf("Calling cuda function\n");
 		cuda_mode(red, green, blue);
+		printf("sd");
 		//print_image_pretty(red, green, blue);
 
 		if (OUTPUT_FORMAT_BINARY) {
@@ -520,7 +561,7 @@ int main(int argc, char *argv[]) {
 
 		}
 		fclose(fp);
-		
+
 		start_time = omp_get_wtime();
 		calculate_mosaic_OPENMP(red, green, blue, &gr, &gg, &gb);
 		double time2 = omp_get_wtime() - start_time;
@@ -560,7 +601,7 @@ int main(int argc, char *argv[]) {
 	}
 	}
 
-	
+
 
 	free(copy_red);
 	free(copy_green);
@@ -568,7 +609,7 @@ int main(int argc, char *argv[]) {
 	return 0;
 }
 
-void print_help(){
+void print_help() {
 	printf("mosaic_%s C M -i input_file -o output_file [options]\n", USER_NAME);
 
 	printf("where:\n");
@@ -597,7 +638,7 @@ int process_command_line(int argc, char *argv[]) {
 
 	//read in the non optional command line arguments
 	c = (unsigned int)atoi(argv[1]);
-	
+
 
 
 	//TODO: read in the mode
@@ -616,7 +657,7 @@ int process_command_line(int argc, char *argv[]) {
 	else {
 		printf("using cuda mode\n\n");
 		execution_mode = CUDA;
-		
+
 	}
 
 
@@ -632,10 +673,11 @@ int process_command_line(int argc, char *argv[]) {
 	output_format = argv[8];
 	printf("%s", mode1);
 	getchar();
-
-	if (strcmp(mode1, "-f") == 0) {
-		if (strcmp(output_format, "PPM_PLAIN_TEXT") == 0) {	
-			OUTPUT_FORMAT_BINARY = 0;// zero means plaintext 1 means binary
+	if (mode1 != NULL) {
+		if (strcmp(mode1, "-f") == 0) {
+			if (strcmp(output_format, "PPM_PLAIN_TEXT") == 0) {
+				OUTPUT_FORMAT_BINARY = 0;// zero means plaintext 1 means binary
+			}
 		}
 	}
 	int debug = 1;// For sanity check printing the user input given
@@ -643,7 +685,7 @@ int process_command_line(int argc, char *argv[]) {
 		printf("Some description of user input: \n");
 		printf("Input filename given: %s \n", input_file_name);
 		printf("Output_filename_ given: %s \n", output_file_name);
-		printf("output_file_mode: %s \n ", output_format);
+	//	printf("output_file_mode: %s \n ", output_format);
 		printf(" THE MODE: %d\n", OUTPUT_FORMAT_BINARY);
 	}
 	return SUCCESS;
