@@ -291,9 +291,7 @@ column = co;
 __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc)
 {
 	const int ccc = cc * cc;
-	__shared__ int red_s;
-	__shared__ int green_s;
-	__shared__ int blue_s;
+	
 
 	//int index_x = cc * (blockDim.x*blockIdx.x + threadIdx.x);
 	//int index_y = cc * (blockDim.y*blockIdx.y + threadIdx.y);
@@ -303,18 +301,44 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int r
 	int index_y = blockDim.y*blockIdx.y + threadIdx.y;
 	int position = (index_x*column) + index_y;
 	int p2 = (threadIdx.x*blockDim.y) + threadIdx.y;
-
-
-	atomicAdd(&red_s, red_cuda[position]);
-	atomicAdd(&green_s, green_cuda[position]);
-	atomicAdd(&blue_s, blue_cuda[position]);
 	
-	__syncthreads();
+	if (threadIdx.x == 0 && threadIdx.y == 0){// && blockIdx.x==2 && blockIdx.y==1) {
+		//printf("Adding it\n");
+		int red_s = 0;
+		int green_s = 0;
+		int blue_s = 0;
+		//printf("__%d %d__", index_x, index_y);
+
+		for (int i = index_x; i < index_x + cc; i++) {
+			for (int j = index_y; j < index_y + cc; j++) {
+				
+			//	printf("%d %d __", i, j);
+				red_s += red_cuda[j*column + i];
+				green_s += green_cuda[j*column + i];
+				blue_s += blue_cuda[j*column + i];
+			}
+		//	printf("\n");
+		}
+		//printf("\n\n\n");
+		//atomicAdd(&red_s, red_cuda[position]);
+		//atomicAdd(&green_s, green_cuda[position]);
+		//atomicAdd(&blue_s, blue_cuda[position]);
+		//__syncthreads();
 
 
-	red_cuda[position] = red_s / (ccc);
-	green_cuda[position] = green_s / (ccc);
-	blue_cuda[position] = blue_s / (ccc);
+		for (int i = index_x; i < index_x + cc; i++) {
+			for (int j = index_y; j < index_y + cc; j++) {
+				red_cuda[j*column + i] = (red_s / ccc);
+				green_cuda[j*column + i] = (green_s / ccc);
+				blue_cuda[j*column + i] =  (blue_s / ccc);
+			}
+		}
+	}
+
+
+	//red_cuda[position] = red_s / (ccc);
+	//green_cuda[position] = green_s / (ccc);
+//	blue_cuda[position] = blue_s / (ccc);
 
 
 
@@ -376,8 +400,8 @@ void cuda_mode(int *red, int *green, int *blue) {
 	printf("The threads per block is : %d %d\n", c, c);
 
 
-	//dim3 blocksPerGrid(blockdimx, blockdimy, 1);
-	dim3 blocksPerGrid(2, 2, 1);
+	dim3 blocksPerGrid(blockdimx, blockdimy, 1);
+//	dim3 blocksPerGrid(2, 2, 1);
 	dim3 threadsPerBlock(c, c, 1);
 
 	//change_c_value << <blocksPerGrid, threadsPerBlock >> > (c, x, y);
