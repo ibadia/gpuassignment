@@ -282,26 +282,25 @@ void calculate_mosaic_OPENMP(int *red, int *green, int *blue, int *gr, int *gg, 
 	*gr = global_average_r;
 	*gb = global_average_b;
 }
-/*
-__global__ void change_c_value(int newc, int r, int co) {
-cc = newc;
-row = r;
-column = co;
-}*/
+
+
+
 __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc)
 {
-	const int ccc = cc * cc;
-	
-
-	//int index_x = cc * (blockDim.x*blockIdx.x + threadIdx.x);
-	//int index_y = cc * (blockDim.y*blockIdx.y + threadIdx.y);
-
+	const int ccc = cc * cc;	
+	__shared__ int red_s;
+	__shared__ int blue_s;
+	__shared__ int green_s;
+	red_s = 0;
+	blue_s = 0;
+	green_s = 0;
+	__syncthreads();
 
 	int index_x = blockDim.x*blockIdx.x + threadIdx.x;
 	int index_y = blockDim.y*blockIdx.y + threadIdx.y;
 	int position = (index_x*column) + index_y;
 	int p2 = (threadIdx.x*blockDim.y) + threadIdx.y;
-	
+	/*
 	if (threadIdx.x == 0 && threadIdx.y == 0){// && blockIdx.x==2 && blockIdx.y==1) {
 		//printf("Adding it\n");
 		int red_s = 0;
@@ -333,12 +332,16 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int r
 				blue_cuda[j*column + i] =  (blue_s / ccc);
 			}
 		}
-	}
-
-
-	//red_cuda[position] = red_s / (ccc);
-	//green_cuda[position] = green_s / (ccc);
-//	blue_cuda[position] = blue_s / (ccc);
+	}*/
+	position = (index_y*column) + index_x;
+	
+	atomicAdd(&red_s,  red_cuda[position]);
+	atomicAdd(&green_s,  green_cuda[position]);
+	atomicAdd(&blue_s,  blue_cuda[position]);
+	__syncthreads();
+	red_cuda[position] = (red_s /ccc);
+	green_cuda[position] = (green_s / ccc);
+	blue_cuda[position] = (blue_s / ccc);
 
 
 
@@ -396,6 +399,13 @@ void cuda_mode(int *red, int *green, int *blue) {
 
 	int blockdimx = x / c;
 	int blockdimy = y / c;
+	if (x%c != 0) {
+		blockdimx += 1;
+	}
+	if (y%c != 0) {
+		blockdimy += 1;
+	}
+
 	printf("\nThe block dimensions set are as follows: %d %d\n", blockdimx, blockdimy);
 	printf("The threads per block is : %d %d\n", c, c);
 
