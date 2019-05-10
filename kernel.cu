@@ -284,44 +284,37 @@ void calculate_mosaic_OPENMP(int *red, int *green, int *blue, int *gr, int *gg, 
 }
 /*
 __global__ void change_c_value(int newc, int r, int co) {
-	cc = newc;
-	row = r;
-	column = co;
+cc = newc;
+row = r;
+column = co;
 }*/
 __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc)
 {
 	const int ccc = cc * cc;
-	extern __shared__ int redarray[];
-	extern __shared__ int greenarray[];
-	extern __shared__ int bluearray[];
-	
-	__shared__ int avg_r;
-	__shared__ int avg_b;
-	__shared__ int avg_g;
+	__shared__ int red_s;
+	__shared__ int green_s;
+	__shared__ int blue_s;
+
 	//int index_x = cc * (blockDim.x*blockIdx.x + threadIdx.x);
 	//int index_y = cc * (blockDim.y*blockIdx.y + threadIdx.y);
 
 
 	int index_x = blockDim.x*blockIdx.x + threadIdx.x;
-	int index_y =  blockDim.y*blockIdx.y + threadIdx.y;
+	int index_y = blockDim.y*blockIdx.y + threadIdx.y;
 	int position = (index_x*column) + index_y;
-	int p2 = (threadIdx.x*blockDim.y + threadIdx.y);
+	int p2 = (threadIdx.x*blockDim.y) + threadIdx.y;
 
+
+	atomicAdd(&red_s, red_cuda[position]);
+	atomicAdd(&green_s, green_cuda[position]);
+	atomicAdd(&blue_s, blue_cuda[position]);
 	
-	redarray[p2] = red_cuda[position];
-	greenarray[p2] = green_cuda[position];
-	bluearray[p2] = blue_cuda[position];
 	__syncthreads();
 
-	avg_r += redarray[p2];
-	avg_g += greenarray[p2];
-	avg_b += bluearray[p2];
-	__syncthreads();
-	
-	red_cuda[position] = avg_r/(cc*cc);
-	green_cuda[position] = avg_g/(cc*cc);
-	blue_cuda[position] = avg_b/(cc*cc);
 
+	red_cuda[position] = red_s / (ccc);
+	green_cuda[position] = green_s / (ccc);
+	blue_cuda[position] = blue_s / (ccc);
 
 
 
@@ -331,20 +324,20 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int r
 	int sum_blue = 0;
 
 	for (int i = index_x; i < index_x + cc; i++) {
-		for (int j = index_y; j < index_y + cc; j++) {
-			int off = (i * column) + j;
-			sum_red += red_cuda[off];
-			sum_green += green_cuda[off];
-			sum_blue += blue_cuda[off];
-		}
+	for (int j = index_y; j < index_y + cc; j++) {
+	int off = (i * column) + j;
+	sum_red += red_cuda[off];
+	sum_green += green_cuda[off];
+	sum_blue += blue_cuda[off];
+	}
 	}
 	for (int i = index_x; i < index_x + cc; i++) {
-		for (int j = index_y; j < index_y + cc; j++) {
-			int off = (i * column) + j;
-			red_cuda[off] = sum_red / (cc*cc);
-			green_cuda[off] = sum_green / (cc*cc);
-			blue_cuda[off] = sum_blue / (cc*cc);
-		}
+	for (int j = index_y; j < index_y + cc; j++) {
+	int off = (i * column) + j;
+	red_cuda[off] = sum_red / (cc*cc);
+	green_cuda[off] = sum_green / (cc*cc);
+	blue_cuda[off] = sum_blue / (cc*cc);
+	}
 	}
 	*/
 
@@ -380,28 +373,31 @@ void cuda_mode(int *red, int *green, int *blue) {
 	int blockdimx = x / c;
 	int blockdimy = y / c;
 	printf("\nThe block dimensions set are as follows: %d %d\n", blockdimx, blockdimy);
-	printf("The threads per block is : %d %d\n", c,c);
+	printf("The threads per block is : %d %d\n", c, c);
 
 
-	dim3 blocksPerGrid(blockdimx, blockdimy, 1);
+	//dim3 blocksPerGrid(blockdimx, blockdimy, 1);
+	dim3 blocksPerGrid(2, 2, 1);
 	dim3 threadsPerBlock(c, c, 1);
 
 	//change_c_value << <blocksPerGrid, threadsPerBlock >> > (c, x, y);
 
 
-	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda, x,y,c);
-
+	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda, x, y, c);
+	
 
 	/* wait for all threads to complete */
 	cudaThreadSynchronize();
 	checkCUDAError("Kernel execution");
-
+	
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
 	float milliseconds = 0;
 	cudaEventElapsedTime(&milliseconds, start, stop);
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
+	printf("cuda run sucessfully\n\n\n");
+	getchar();
 
 	/* copy the gpu output back to the host */
 	cudaMemcpy(red, red_cuda, size_of_image, cudaMemcpyDeviceToHost);
@@ -685,7 +681,7 @@ int process_command_line(int argc, char *argv[]) {
 		printf("Some description of user input: \n");
 		printf("Input filename given: %s \n", input_file_name);
 		printf("Output_filename_ given: %s \n", output_file_name);
-	//	printf("output_file_mode: %s \n ", output_format);
+		//	printf("output_file_mode: %s \n ", output_format);
 		printf(" THE MODE: %d\n", OUTPUT_FORMAT_BINARY);
 	}
 	return SUCCESS;
