@@ -298,48 +298,57 @@ __device__ void unlock(unsigned int *pmutex)
 __global__ void image_func_optimized(int * red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc) {
 	const int ccc = cc * cc;
 	int index_x = (blockDim.x*blockIdx.x) + threadIdx.x;
-	int index_y = cc*blockIdx.y;
-	
+	int index_y = cc * blockIdx.y;
+
 	__shared__ int red_s, blue_s, green_s;
 	red_s = 0;
 	blue_s = 0;
 	green_s = 0;
 	__syncthreads();
-	for (int i = index_y; i < (index_y + cc); i++) {
-		//i is row, index_x is column;
-		int position = (i*column) + index_x;
-		if (index_x == 132 && i == 1) {
-			printf("_+_%d %d %d_+_", red_cuda[position], green_cuda[position], blue_cuda[position]);
-		}
-		if (index_x == 1 && i == 132) {
-			printf("__%d %d %d__", red_cuda[position], green_cuda[position], blue_cuda[position]);
-		}
-	}
 	
-
-	for (int i = index_y; i < (index_y+cc); i++) {
-
+	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
+		//i is row, index_x is column;
+		if (index_x > column)continue;
 		int position = (i*column) + index_x;
+	//	printf("%d %d____ %d %d %d__\n", i, index_x, red_cuda[position], green_cuda[position], blue_cuda[position]);
 		
+
+	}
+
+	int h_c = cc;
+	if ((index_y + cc) >= row) {
+		h_c = row - index_y;
+	}
+	int r_c =cc;
+	if ((blockDim.x*blockIdx.x)+cc >= column) {
+		r_c = column - (blockDim.x*blockIdx.x);
+	}
+
+	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
+		if (index_x >= column)continue;
+		
+		int position = (i*column) + index_x;
 		atomicAdd(&red_s, red_cuda[position]);
 		atomicAdd(&green_s, green_cuda[position]);
 		atomicAdd(&blue_s, blue_cuda[position]);
 	}
 	__syncthreads();
-	for (int i = index_y; i < index_y + cc; i++) {
-		int position = (i*column) + index_x;
-		red_cuda[position] = (red_s / ccc);
-		green_cuda[position] = (green_s / ccc);
-		blue_cuda[position] = (blue_s / ccc);
-	}
 	
+	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
+		if (index_x >=column)continue;
+		int position = (i*column) + index_x;
+		red_cuda[position] = (red_s / (h_c*r_c));
+		green_cuda[position] = (green_s / (h_c*r_c));
+		blue_cuda[position] = (blue_s / (h_c*r_c));
+	}
+
 
 }
 
 
 __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc)
 {
-	const int ccc = cc * cc;	
+	const int ccc = cc * cc;
 	__shared__ int red_s;
 	__shared__ int blue_s;
 	__shared__ int green_s;
@@ -354,50 +363,50 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int r
 	int p2 = (threadIdx.x*blockDim.y) + threadIdx.y;
 	/*
 	if (threadIdx.x == 0 && threadIdx.y == 0){// && blockIdx.x==2 && blockIdx.y==1) {
-		//printf("Adding it\n");
-		int red_s = 0;
-		int green_s = 0;
-		int blue_s = 0;
-		//printf("__%d %d__", index_x, index_y);
+	//printf("Adding it\n");
+	int red_s = 0;
+	int green_s = 0;
+	int blue_s = 0;
+	//printf("__%d %d__", index_x, index_y);
 
-		for (int i = index_x; i < index_x + cc; i++) {
-			for (int j = index_y; j < index_y + cc; j++) {
-				
-			//	printf("%d %d __", i, j);
-				red_s += red_cuda[j*column + i];
-				green_s += green_cuda[j*column + i];
-				blue_s += blue_cuda[j*column + i];
-			}
-		//	printf("\n");
-		}
-		//printf("\n\n\n");
-		//atomicAdd(&red_s, red_cuda[position]);
-		//atomicAdd(&green_s, green_cuda[position]);
-		//atomicAdd(&blue_s, blue_cuda[position]);
-		//__syncthreads();
+	for (int i = index_x; i < index_x + cc; i++) {
+	for (int j = index_y; j < index_y + cc; j++) {
+
+	//	printf("%d %d __", i, j);
+	red_s += red_cuda[j*column + i];
+	green_s += green_cuda[j*column + i];
+	blue_s += blue_cuda[j*column + i];
+	}
+	//	printf("\n");
+	}
+	//printf("\n\n\n");
+	//atomicAdd(&red_s, red_cuda[position]);
+	//atomicAdd(&green_s, green_cuda[position]);
+	//atomicAdd(&blue_s, blue_cuda[position]);
+	//__syncthreads();
 
 
-		for (int i = index_x; i < index_x + cc; i++) {
-			for (int j = index_y; j < index_y + cc; j++) {
-				red_cuda[j*column + i] = (red_s / ccc);
-				green_cuda[j*column + i] = (green_s / ccc);
-				blue_cuda[j*column + i] =  (blue_s / ccc);
-			}
-		}
+	for (int i = index_x; i < index_x + cc; i++) {
+	for (int j = index_y; j < index_y + cc; j++) {
+	red_cuda[j*column + i] = (red_s / ccc);
+	green_cuda[j*column + i] = (green_s / ccc);
+	blue_cuda[j*column + i] =  (blue_s / ccc);
+	}
+	}
 	}*/
 	position = (index_y*column) + index_x;
-	
-	atomicAdd(&red_s,  red_cuda[position]);
-	atomicAdd(&green_s,  green_cuda[position]);
-	atomicAdd(&blue_s,  blue_cuda[position]);
+
+	atomicAdd(&red_s, red_cuda[position]);
+	atomicAdd(&green_s, green_cuda[position]);
+	atomicAdd(&blue_s, blue_cuda[position]);
 	__syncthreads();
-	red_cuda[position] = (red_s /ccc);
+	red_cuda[position] = (red_s / ccc);
 	green_cuda[position] = (green_s / ccc);
 	blue_cuda[position] = (blue_s / ccc);
 
 	red_cuda[123] = 2;
 
-	
+
 	/*
 	int sum_red = 0;
 	int sum_green = 0;
@@ -444,7 +453,8 @@ void cuda_mode(int *red, int *green, int *blue) {
 	/* Configure the grid of thread blocks and run the GPU kernel */
 	printf("Value of c is %d\n", c);
 	printf("Starting kernel\n");
-
+	
+	
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
@@ -460,24 +470,23 @@ void cuda_mode(int *red, int *green, int *blue) {
 	}
 	printf("The image dimensions are as follows: %d %d\n", x, y);
 	printf("\nThe block dimensions set are as follows: %d %d\n", blockdimx, blockdimy);
-	printf("The threads per block is : %d %d\n", c, c);
+	printf("The threads per block is : %d %d\n", c, 1);
 	printf("\n_______________________________________________\n");
-
 	dim3 blocksPerGrid(blockdimx, blockdimy, 1);
-//	dim3 blocksPerGrid(	1, 1, 1);
+	//	dim3 blocksPerGrid(	1, 1, 1);
 	//dim3 threadsPerBlock(c, c, 1);
 	dim3 threadsPerBlock(c, 1, 1);
 	//change_c_value << <blocksPerGrid, threadsPerBlock >> > (c, x, y);
-	image_func_optimized << <blocksPerGrid, threadsPerBlock >> > (red_cuda, green_cuda, blue_cuda, x, y, c);
+	image_func_optimized << <blocksPerGrid, threadsPerBlock >> > (red_cuda, green_cuda, blue_cuda, y, x, c);
 
 
-//	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda, x, y, c);
-	
+	//	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda, x, y, c);
+
 
 	/* wait for all threads to complete */
 	cudaThreadSynchronize();
 	checkCUDAError("Kernel execution");
-	
+
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
 	float milliseconds = 0;
