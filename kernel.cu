@@ -285,6 +285,58 @@ void calculate_mosaic_OPENMP(int *red, int *green, int *blue, int *gr, int *gg, 
 
 
 
+__device__ void lock(unsigned int *pmutex)
+{
+	while (atomicCAS(pmutex, 0, 1) != 0);
+}
+
+__device__ void unlock(unsigned int *pmutex)
+{
+	atomicExch(pmutex, 0);
+}
+
+__global__ void image_func_optimized(int * red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc) {
+	const int ccc = cc * cc;
+	int index_x = (blockDim.x*blockIdx.x) + threadIdx.x;
+	int index_y = cc*blockIdx.y;
+	
+	__shared__ int red_s, blue_s, green_s;
+	red_s = 0;
+	blue_s = 0;
+	green_s = 0;
+	__syncthreads();
+	for (int i = index_y; i < (index_y + cc); i++) {
+		//i is row, index_x is column;
+		int position = (i*column) + index_x;
+		if (index_x == 132 && i == 1) {
+			printf("_+_%d %d %d_+_", red_cuda[position], green_cuda[position], blue_cuda[position]);
+		}
+		if (index_x == 1 && i == 132) {
+			printf("__%d %d %d__", red_cuda[position], green_cuda[position], blue_cuda[position]);
+		}
+	}
+	
+
+	for (int i = index_y; i < (index_y+cc); i++) {
+
+		int position = (i*column) + index_x;
+		
+		atomicAdd(&red_s, red_cuda[position]);
+		atomicAdd(&green_s, green_cuda[position]);
+		atomicAdd(&blue_s, blue_cuda[position]);
+	}
+	__syncthreads();
+	for (int i = index_y; i < index_y + cc; i++) {
+		int position = (i*column) + index_x;
+		red_cuda[position] = (red_s / ccc);
+		green_cuda[position] = (green_s / ccc);
+		blue_cuda[position] = (blue_s / ccc);
+	}
+	
+
+}
+
+
 __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc)
 {
 	const int ccc = cc * cc;	
@@ -343,8 +395,9 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int r
 	green_cuda[position] = (green_s / ccc);
 	blue_cuda[position] = (blue_s / ccc);
 
+	red_cuda[123] = 2;
 
-
+	
 	/*
 	int sum_red = 0;
 	int sum_green = 0;
@@ -405,19 +458,20 @@ void cuda_mode(int *red, int *green, int *blue) {
 	if (y%c != 0) {
 		blockdimy += 1;
 	}
-
+	printf("The image dimensions are as follows: %d %d\n", x, y);
 	printf("\nThe block dimensions set are as follows: %d %d\n", blockdimx, blockdimy);
 	printf("The threads per block is : %d %d\n", c, c);
-
+	printf("\n_______________________________________________\n");
 
 	dim3 blocksPerGrid(blockdimx, blockdimy, 1);
-//	dim3 blocksPerGrid(2, 2, 1);
-	dim3 threadsPerBlock(c, c, 1);
-
+//	dim3 blocksPerGrid(	1, 1, 1);
+	//dim3 threadsPerBlock(c, c, 1);
+	dim3 threadsPerBlock(c, 1, 1);
 	//change_c_value << <blocksPerGrid, threadsPerBlock >> > (c, x, y);
+	image_func_optimized << <blocksPerGrid, threadsPerBlock >> > (red_cuda, green_cuda, blue_cuda, x, y, c);
 
 
-	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda, x, y, c);
+//	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda, x, y, c);
 	
 
 	/* wait for all threads to complete */
@@ -431,6 +485,8 @@ void cuda_mode(int *red, int *green, int *blue) {
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
 	printf("cuda run sucessfully\n\n\n");
+	printf("Time taken by the gpu is %f\n", milliseconds);
+
 	getchar();
 
 	/* copy the gpu output back to the host */
