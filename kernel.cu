@@ -284,7 +284,7 @@ void calculate_mosaic_OPENMP(int *red, int *green, int *blue, int *gr, int *gg, 
 }
 
 __global__ void image_func_big_c(int * red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc) {
-	const int ccc = cc * cc;
+	//const int ccc = cc * cc;
 	int index_x = (cc*blockIdx.x) + threadIdx.x;
 	int index_y = cc * blockIdx.y;
 	extern __shared__ int unified_arr[];
@@ -357,26 +357,14 @@ __global__ void image_func_big_c(int * red_cuda, int *green_cuda, int *blue_cuda
 
 
 __global__ void image_func_optimized_reduction(int * red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc) {
-	const int ccc = cc * cc;
 	int index_x = (blockDim.x*blockIdx.x) + threadIdx.x;
 	int index_y = cc * blockIdx.y;
 	extern __shared__ int unified_arr[];
-	__shared__ int red_arr[32];
-	__shared__ int green_arr[32];
-	__shared__ int blue_arr[32];
-	red_arr[threadIdx.x] = 0;
-	green_arr[threadIdx.x] = 0;
-	blue_arr[threadIdx.x] = 0;
+	
 
 	unified_arr[threadIdx.x] = 0;
 	unified_arr[threadIdx.x + cc] = 0;
 	unified_arr[threadIdx.x + cc + cc] = 0;
-
-
-	__shared__ int red_s, blue_s, green_s;
-	red_s = 0;
-	blue_s = 0;
-	green_s = 0;
 	__syncthreads();
 
 
@@ -414,8 +402,6 @@ __global__ void image_func_optimized_reduction(int * red_cuda, int *green_cuda, 
 		green_cuda[position] = (unified_arr[cc] / (h_c*r_c));
 		blue_cuda[position] = (unified_arr[cc+cc] / (h_c*r_c));
 	}
-
-
 }
 
 
@@ -431,15 +417,6 @@ __global__ void image_func_optimized(int * red_cuda, int *green_cuda, int *blue_
 	green_s = 0;
 	__syncthreads();
 	
-	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
-		//i is row, index_x is column;
-		if (index_x > column)continue;
-		int position = (i*column) + index_x;
-	//	printf("%d %d____ %d %d %d__\n", i, index_x, red_cuda[position], green_cuda[position], blue_cuda[position]);
-		
-
-	}
-
 	int h_c = cc;
 	if ((index_y + cc) >= row) {
 		h_c = row - index_y;
@@ -485,7 +462,7 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int r
 	int index_x = blockDim.x*blockIdx.x + threadIdx.x;
 	int index_y = blockDim.y*blockIdx.y + threadIdx.y;
 	int position = (index_x*column) + index_y;
-	int p2 = (threadIdx.x*blockDim.y) + threadIdx.y;
+//	int p2 = (threadIdx.x*blockDim.y) + threadIdx.y;
 	/*
 	if (threadIdx.x == 0 && threadIdx.y == 0){// && blockIdx.x==2 && blockIdx.y==1) {
 	//printf("Adding it\n");
@@ -528,10 +505,6 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int r
 	red_cuda[position] = (red_s / ccc);
 	green_cuda[position] = (green_s / ccc);
 	blue_cuda[position] = (blue_s / ccc);
-
-	red_cuda[123] = 2;
-
-
 	/*
 	int sum_red = 0;
 	int sum_green = 0;
@@ -558,30 +531,25 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int r
 }
 
 
-void cuda_mode(int *red, int *green, int *blue) {
+float cuda_mode(int *red, int *green, int *blue) {
 	int* red_cuda, *green_cuda, *blue_cuda;
 	int size_of_image = x * y * sizeof(int);
-	printf("dimensions of image is: %d %d \n\n", x, y);
-	printf("%d", size_of_image);
-
+	//printf("Dimensions of image is: %d %d \n\n", x, y);
+	
 	cudaMalloc((void **)&red_cuda, size_of_image);
 	cudaMalloc((void **)&green_cuda, size_of_image);
 	cudaMalloc((void **)&blue_cuda, size_of_image);
 	checkCUDAError("Memory allocation");
 
-	/* copy host input to device input */
+	// copy host input to device input 
 	cudaMemcpy(red_cuda, red, size_of_image, cudaMemcpyHostToDevice);
 	cudaMemcpy(green_cuda, green, size_of_image, cudaMemcpyHostToDevice);
 	cudaMemcpy(blue_cuda, blue, size_of_image, cudaMemcpyHostToDevice);
 	checkCUDAError("Input transfer to device");
 
-	/* Configure the grid of thread blocks and run the GPU kernel */
 	printf("Value of c is %d\n", c);
 	printf("Starting kernel\n");
 	
-	
-	
-
 	int blockdimx = x / c;
 	int blockdimy = y / c;
 	if (x%c != 0) {
@@ -590,32 +558,29 @@ void cuda_mode(int *red, int *green, int *blue) {
 	if (y%c != 0) {
 		blockdimy += 1;
 	}
-	printf("The image dimensions are as follows: %d %d\n", x, y);
-	printf("\nThe block dimensions set are as follows: %d %d\n", blockdimx, blockdimy);
-	printf("The threads per block is : %d %d\n", c, 1);
-	printf("\n_______________________________________________\n");
+	//printf("\nThe block dimensions set are: %d %d\n", blockdimx, blockdimy);
+	
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	cudaEventRecord(start);
-	int newc = c;
-	if (c > 1024) {
-		newc = 1024;
-	}
 	dim3 blocksPerGrid(blockdimx, blockdimy, 1);
-	dim3 threadsPerBlock(newc, 1, 1);
-	//change_c_value << <blocksPerGrid, threadsPerBlock >> > (c, x, y);
+	unsigned int sm_size = sizeof(int)*c * 3;
+	if (c > 1024) {
+		printf("C is greater than 1024 hence calling another kernel function for big c values...\n");
+		dim3 threadsPerBlock(1024, 1, 1);
+		image_func_big_c << <blocksPerGrid, threadsPerBlock, sm_size >> > (red_cuda, green_cuda, blue_cuda, y, x, c);
+	}
+	else {
+		printf("C is less than 1024 calling function for this C..\n");
+		dim3 threadsPerBlock(c, 1, 1);
+		image_func_optimized_reduction << <blocksPerGrid, threadsPerBlock, sm_size>> > (red_cuda, green_cuda, blue_cuda, y, x, c);
+	}
 	//image_func_optimized << <blocksPerGrid, threadsPerBlock >> > (red_cuda, green_cuda, blue_cuda, y, x, c);
-	unsigned int sm_size = sizeof(int)*c*3;
-	printf("_____%d____", sm_size);
-	
-	image_func_big_c << <blocksPerGrid, threadsPerBlock, sm_size >> > (red_cuda, green_cuda, blue_cuda, y, x, c);
-	//image_func_optimized_reduction << <blocksPerGrid, threadsPerBlock, sm_size>> > (red_cuda, green_cuda, blue_cuda, y, x, c);
-
 	//	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda, x, y, c);
 
 
-	/* wait for all threads to complete */
+	//wait for all threads to complete
 	cudaThreadSynchronize();
 	checkCUDAError("Kernel execution");
 
@@ -625,26 +590,8 @@ void cuda_mode(int *red, int *green, int *blue) {
 	cudaEventElapsedTime(&milliseconds, start, stop);
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
-	printf("cuda run sucessfully\n\n\n");
-	printf("Time taken by the gpu is %f\n", milliseconds);
 
-	getchar();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-	/* copy the gpu output back to the host */
+	// copy the gpu output back to the host 
 	cudaMemcpy(red, red_cuda, size_of_image, cudaMemcpyDeviceToHost);
 	cudaMemcpy(green, green_cuda, size_of_image, cudaMemcpyDeviceToHost);
 	cudaMemcpy(blue, blue_cuda, size_of_image, cudaMemcpyDeviceToHost);
@@ -652,14 +599,12 @@ void cuda_mode(int *red, int *green, int *blue) {
 
 
 
-	/* free device memory */
+	//free device memory
 	cudaFree(red_cuda);
 	cudaFree(green_cuda);
 	cudaFree(blue_cuda);
 	checkCUDAError("Free memory");
-	printf("Time taken by the gpu is %f\n", milliseconds);
-	getchar();
-
+	return milliseconds;
 }
 void print_image_pretty(int *red, int *green, int *blue) {
 	for (int i = 0; i < x; i++) {
@@ -741,7 +686,6 @@ int main(int argc, char *argv[]) {
 		//TODO: starting timing here
 		double start_time = omp_get_wtime();
 		printf("USING OPENMP");
-		//TODO: calculate the average colour value
 		int gr, gg, gb;
 		calculate_mosaic_OPENMP(red, green, blue, &gr, &gg, &gb);
 		double time = omp_get_wtime() - start_time;
@@ -754,20 +698,14 @@ int main(int argc, char *argv[]) {
 			writing_plain_text_file(red, green, blue);
 		}
 		printf("OPENMP Average image colour red = %d, green = %d, blue = %d \n", gr, gg, gb);
-		printf("OPENMP mode execution time took %f s and  %f ms\n", time, time * 1000);
+		printf("OPENMP mode execution time %f ms\n", time * 1000);
 		break;
 	}
 	case (CUDA): {
-		printf("CUDA Implementation\n");
-		//print_image_pretty(red, green, blue);
-		printf("\n\n");
-
-		printf("Calling cuda function\n");
-		cuda_mode(red, green, blue);
-		printf("sd");
-		//print_image_pretty(red, green, blue);
-
-		if (OUTPUT_FORMAT_BINARY) {
+		printf("CUDA MODE\n");
+		float time_taken=cuda_mode(red, green, blue);
+		printf("CUDA mode execution time took  %f ms\n",time_taken);
+		if (OUTPUT_FORMAT_BINARY){
 			printf("Writing Binary File: \n");
 			writing_binary_file(red, green, blue);
 		}
@@ -775,7 +713,7 @@ int main(int argc, char *argv[]) {
 			printf("Writing plain text: \n");
 			writing_plain_text_file(red, green, blue);
 		}
-
+		
 
 		break;
 	}
@@ -875,15 +813,11 @@ int process_command_line(int argc, char *argv[]) {
 		return FAILURE;
 	}
 
-	//first argument is always the executable name
-
-	//read in the non optional command line arguments
+	
 	c = (unsigned int)atoi(argv[1]);
 
 
 
-	//TODO: read in the mode
-	printf("Mode specified is: %s", argv[2]);
 	char *argv1 = argv[2];
 	//To set the mode user is giving
 	if (strcmp(argv1, "CPU") == 0) {
@@ -901,19 +835,12 @@ int process_command_line(int argc, char *argv[]) {
 
 	}
 
-
-	/*Since the file will be in the mode of -i input filename,
-	and -o outputfilename -f PPL_PLAIN hence for that the
-	c language getopt library is used
-	*/
 	char *mode = argv[3];
 	input_file_name = argv[4];
 	output_file_name = argv[6];
-
 	char *mode1 = argv[7];
 	output_format = argv[8];
-	printf("%s", mode1);
-	getchar();
+	
 	if (mode1 != NULL) {
 		if (strcmp(mode1, "-f") == 0) {
 			if (strcmp(output_format, "PPM_PLAIN_TEXT") == 0) {
@@ -921,6 +848,9 @@ int process_command_line(int argc, char *argv[]) {
 			}
 		}
 	}
+	
+	
+	
 	int debug = 1;// For sanity check printing the user input given
 	if (debug == 1) {
 		printf("Some description of user input: \n");
