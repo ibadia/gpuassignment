@@ -283,17 +283,142 @@ void calculate_mosaic_OPENMP(int *red, int *green, int *blue, int *gr, int *gg, 
 	*gb = global_average_b;
 }
 
+__global__ void image_func_big_c(int * red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc) {
+	const int ccc = cc * cc;
+	int index_x = (cc*blockIdx.x) + threadIdx.x;
+	int index_y = cc * blockIdx.y;
+	extern __shared__ int unified_arr[];
+	
+	unified_arr[threadIdx.x] = 0;
+	unified_arr[threadIdx.x + cc] = 0;
+	unified_arr[threadIdx.x + cc + cc] = 0;
+	
+	//if size greater than 1024
+	if ((threadIdx.x + 1024) < cc) {
+		unified_arr[threadIdx.x +1024] = 0;
+		unified_arr[threadIdx.x + 1024 + cc] = 0;
+		unified_arr[threadIdx.x + 1024 + cc + cc] = 0;
+	}
+
+	__shared__ int red_s, blue_s, green_s;
+	red_s = 0;
+	blue_s = 0;
+	green_s = 0;
+	__syncthreads();
 
 
-__device__ void lock(unsigned int *pmutex)
-{
-	while (atomicCAS(pmutex, 0, 1) != 0);
+	int h_c = cc;
+	if ((index_y + cc) >= row) {
+		h_c = row - index_y;
+	}
+	int r_c = cc;
+	if ((cc*blockIdx.x) + cc >= column) {
+		r_c = column - (cc*blockIdx.x);
+	}
+
+
+	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
+		if (index_x >= column)continue;
+		int position = (i*column) + index_x;
+		atomicAdd(&red_s, red_cuda[position]);
+		atomicAdd(&blue_s, blue_cuda[position]);
+		atomicAdd(&green_s, green_cuda[position]);
+
+		if ((threadIdx.x + 1024) < (r_c) ) {
+			position = (i*column) + (index_x + 1024);
+			atomicAdd(&red_s, red_cuda[position]);
+			atomicAdd(&blue_s, blue_cuda[position]);
+			atomicAdd(&green_s, green_cuda[position]);
+		}
+
+
+	}
+	
+	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
+		if (index_x >= column)continue;
+		int position = (i*column) + index_x;
+		red_cuda[position] = (red_s/ (h_c*r_c));
+		green_cuda[position] = (green_s/ (h_c*r_c));
+		blue_cuda[position] = (blue_s/ (h_c*r_c));
+
+		if ((threadIdx.x + 1024) < cc) {
+			position = (i*column) + (index_x + 1024);
+			red_cuda[position]= red_s / (h_c*r_c);
+			green_cuda[position]= green_s / (h_c*r_c);
+			blue_cuda[position]= blue_s / (h_c*r_c);
+		}
+
+
+	}
+
+
 }
 
-__device__ void unlock(unsigned int *pmutex)
-{
-	atomicExch(pmutex, 0);
+
+
+__global__ void image_func_optimized_reduction(int * red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc) {
+	const int ccc = cc * cc;
+	int index_x = (blockDim.x*blockIdx.x) + threadIdx.x;
+	int index_y = cc * blockIdx.y;
+	extern __shared__ int unified_arr[];
+	__shared__ int red_arr[32];
+	__shared__ int green_arr[32];
+	__shared__ int blue_arr[32];
+	red_arr[threadIdx.x] = 0;
+	green_arr[threadIdx.x] = 0;
+	blue_arr[threadIdx.x] = 0;
+
+	unified_arr[threadIdx.x] = 0;
+	unified_arr[threadIdx.x + cc] = 0;
+	unified_arr[threadIdx.x + cc + cc] = 0;
+
+
+	__shared__ int red_s, blue_s, green_s;
+	red_s = 0;
+	blue_s = 0;
+	green_s = 0;
+	__syncthreads();
+
+
+	int h_c = cc;
+	if ((index_y + cc) >= row) {
+		h_c = row - index_y;
+	}
+	int r_c = cc;
+	if((blockDim.x*blockIdx.x) + cc >= column) {
+		r_c = column - (blockDim.x*blockIdx.x);
+	}
+
+	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
+		if (index_x >= column)continue;
+
+		int position = (i*column) + index_x;
+		unified_arr[threadIdx.x]+=red_cuda[position];
+		unified_arr[threadIdx.x + cc]+=green_cuda[position];
+		unified_arr[threadIdx.x + cc + cc]+=blue_cuda[position];
+	}
+	__syncthreads();
+	for (unsigned int stride = 1; stride < blockDim.x; stride *= 2) {
+		unsigned int strided_i = threadIdx.x * 2 * stride;
+		if (strided_i < blockDim.x) {
+			unified_arr[strided_i] += unified_arr[strided_i + stride];
+			unified_arr[strided_i+cc] += unified_arr[strided_i +cc+ stride];
+			unified_arr[strided_i+cc+cc] += unified_arr[strided_i+cc+cc + stride];
+		}
+		__syncthreads();
+	}
+	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
+		if (index_x >= column)continue;
+		int position = (i*column) + index_x;
+		red_cuda[position] = (unified_arr[0] / (h_c*r_c));
+		green_cuda[position] = (unified_arr[cc] / (h_c*r_c));
+		blue_cuda[position] = (unified_arr[cc+cc] / (h_c*r_c));
+	}
+
+
 }
+
+
 
 __global__ void image_func_optimized(int * red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc) {
 	const int ccc = cc * cc;
@@ -334,7 +459,7 @@ __global__ void image_func_optimized(int * red_cuda, int *green_cuda, int *blue_
 	}
 	__syncthreads();
 	
-	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
+	for(int i = index_y; i < (index_y + cc) && (i < row); i++) {
 		if (index_x >=column)continue;
 		int position = (i*column) + index_x;
 		red_cuda[position] = (red_s / (h_c*r_c));
@@ -455,10 +580,7 @@ void cuda_mode(int *red, int *green, int *blue) {
 	printf("Starting kernel\n");
 	
 	
-	cudaEvent_t start, stop;
-	cudaEventCreate(&start);
-	cudaEventCreate(&stop);
-	cudaEventRecord(start);
+	
 
 	int blockdimx = x / c;
 	int blockdimy = y / c;
@@ -472,13 +594,23 @@ void cuda_mode(int *red, int *green, int *blue) {
 	printf("\nThe block dimensions set are as follows: %d %d\n", blockdimx, blockdimy);
 	printf("The threads per block is : %d %d\n", c, 1);
 	printf("\n_______________________________________________\n");
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+	cudaEventRecord(start);
+	int newc = c;
+	if (c > 1024) {
+		newc = 1024;
+	}
 	dim3 blocksPerGrid(blockdimx, blockdimy, 1);
-	//	dim3 blocksPerGrid(	1, 1, 1);
-	//dim3 threadsPerBlock(c, c, 1);
-	dim3 threadsPerBlock(c, 1, 1);
+	dim3 threadsPerBlock(newc, 1, 1);
 	//change_c_value << <blocksPerGrid, threadsPerBlock >> > (c, x, y);
-	image_func_optimized << <blocksPerGrid, threadsPerBlock >> > (red_cuda, green_cuda, blue_cuda, y, x, c);
-
+	//image_func_optimized << <blocksPerGrid, threadsPerBlock >> > (red_cuda, green_cuda, blue_cuda, y, x, c);
+	unsigned int sm_size = sizeof(int)*c*3;
+	printf("_____%d____", sm_size);
+	
+	image_func_big_c << <blocksPerGrid, threadsPerBlock, sm_size >> > (red_cuda, green_cuda, blue_cuda, y, x, c);
+	//image_func_optimized_reduction << <blocksPerGrid, threadsPerBlock, sm_size>> > (red_cuda, green_cuda, blue_cuda, y, x, c);
 
 	//	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda, x, y, c);
 
@@ -497,6 +629,20 @@ void cuda_mode(int *red, int *green, int *blue) {
 	printf("Time taken by the gpu is %f\n", milliseconds);
 
 	getchar();
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 	/* copy the gpu output back to the host */
 	cudaMemcpy(red, red_cuda, size_of_image, cudaMemcpyDeviceToHost);
