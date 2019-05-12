@@ -80,22 +80,22 @@ void get_image_dimensions(FILE *fp, int *x, int *y) {// to get the dimensions of
 	ch1 = ch + 1;
 	ch = ch1 + 1;
 }
-void read_plain_image(int *red, int *green, int *blue, FILE *fp) {
+void read_plain_image(uchar4 *input_image, FILE *fp) {
 	for (int i = 0; i<x; i++) {
 		for (int j = 0; j<y; j++) {
-			int r, g, b;
+			unsigned int r, g, b;
 			fscanf(fp, "%d %d %d", &r, &g, &b);
 			char useless;
 			useless = getc(fp);
 			useless = 1 + useless;
 			int position = (i * y) + j;
-			red[position] = r;
-			green[position] = g;
-			blue[position] = b;
+			input_image[position].x = r;
+			input_image[position].y = g;
+			input_image[position].z = b;
 		}
 	}
 }
-void read_binary_image(int *red, int *green, int *blue) {
+void read_binary_image(uchar4 *input_image) {
 	FILE *fp_binary = fopen(input_file_name, "rb");
 	get_image_dimensions(fp_binary, &x, &y);
 	unsigned char currentPixel[3];
@@ -109,16 +109,17 @@ void read_binary_image(int *red, int *green, int *blue) {
 			g = currentPixel[1];
 			b = currentPixel[2];
 			int position = (i * y) + j;
-			red[position] = r;
-			green[position] = g;
-			blue[position] = b;
+			input_image[position].x = r;
+			input_image[position].y = g;
+			input_image[position].z = b;
+
 		}
 	}
 
 	fclose(fp_binary);
 }
 
-void writing_plain_text_file(int *red, int *green, int *blue) {
+void writing_plain_text_file(uchar4 *image) {
 	FILE *outfile = fopen(output_file_name, "w");
 	fprintf(outfile, "P3\n");// since it is plain text
 	fprintf(outfile, "# COM4521 Assignment test output\n");
@@ -129,9 +130,9 @@ void writing_plain_text_file(int *red, int *green, int *blue) {
 		for (int j = 0; j<y; j++) {
 			int r, g, b;
 			int position = (i * y) + j;
-			r = red[position];
-			g = green[position];
-			b = blue[position];
+			r = image[position].x;
+			g = image[position].y;
+			b = image[position].z;
 			if (j == (y - 1)) {
 				fprintf(outfile, "%d %d %d", r, g, b);//for last value no need to add tab
 			}
@@ -144,7 +145,7 @@ void writing_plain_text_file(int *red, int *green, int *blue) {
 }
 
 //for writing the binary file, it gets the filename globally and pointer to array
-void writing_binary_file(int *red, int *green, int *blue) {
+void writing_binary_file(uchar4 *image) {
 	FILE *outfile = fopen(output_file_name, "wb");//using wb parameter for binary
 	fprintf(outfile, "P6\n");//means that is is binary
 	fprintf(outfile, "# COM4521 Assignment test output\n");
@@ -154,9 +155,9 @@ void writing_binary_file(int *red, int *green, int *blue) {
 		for (int j = 0; j<y; j++) {
 			int r, g, b;
 			int position = (i * y) + j;
-			r = red[position];
-			g = green[position];
-			b = blue[position];
+			r = image[position].x;
+			g = image[position].y;
+			b = image[position].z;
 			static unsigned char color[3];
 			//to get the bytes representation of rgb
 			color[0] = r % 256;  /* red */
@@ -171,7 +172,7 @@ void writing_binary_file(int *red, int *green, int *blue) {
 
 //to calculate the mosaic and average in CPU mode
 //the gr ,gg,and gb is used to get the average of r g and b values
-void calculate_mosaic_CPU(int *red, int *green, int *blue, int *gr, int *gg, int *gb) {
+void calculate_mosaic_CPU(uchar4 *input_image, int *gr, int *gg, int *gb) {
 	printf("STARTING THE MOSAIC OPERATION USING CPU APPROACH\n\n\n");
 	int global_average_r = 0;//initialized to zero
 	int global_average_g = 0;
@@ -186,9 +187,9 @@ void calculate_mosaic_CPU(int *red, int *green, int *blue, int *gr, int *gg, int
 			for (int ii = i; ii< (i + c) && ii<x; ii++) {//accessing the squares
 				for (int jj = j; jj<(j + c) && jj<y; jj++) {
 					int position = (ii * y) + jj;
-					int r = red[position];
-					int g = green[position];
-					int b = blue[position];
+					int r = input_image[position].x;
+					int g = input_image[position].y;
+					int b = input_image[position].z;
 					average_r += r;
 					average_b += b;
 					average_g += g;
@@ -206,9 +207,9 @@ void calculate_mosaic_CPU(int *red, int *green, int *blue, int *gr, int *gg, int
 			for (int ii = i; ii< (i + c) && ii<x; ii++) {//updating the value in main matrix
 				for (int jj = j; jj<(j + c) && jj<y; jj++) {
 					int position = (ii * y) + jj;
-					red[position] = average_r;
-					blue[position] = average_b;
-					green[position] = average_g;
+					input_image[position].x = average_r;
+					input_image[position].y = average_g;
+					input_image[position].z = average_b;
 				}
 			}
 		}
@@ -221,7 +222,7 @@ void calculate_mosaic_CPU(int *red, int *green, int *blue, int *gr, int *gg, int
 	*gb = global_average_b;//setting up the pointer
 
 }
-void calculate_mosaic_OPENMP(int *red, int *green, int *blue, int *gr, int *gg, int *gb) {
+void calculate_mosaic_OPENMP(uchar4 *input_image, int *gr, int *gg, int *gb) {
 	printf("STARTING THE MOSAIC OPERATION USING OPENMP APPROACH\n\n\n");
 	int global_average_r = 0;
 	int global_average_g = 0;
@@ -247,9 +248,9 @@ void calculate_mosaic_OPENMP(int *red, int *green, int *blue, int *gr, int *gg, 
 			for (ii = i; ii< (i + c) && ii<x; ii++) {
 				for (jj = j; jj<(j + c) && jj<y; jj++) {
 					int position = (ii * y) + jj;
-					int r = red[position];
-					int g = green[position];
-					int b = blue[position];
+					int r = input_image[position].x;
+					int g = input_image[position].y;
+					int b = input_image[position].z;
 					average_r += r;
 					average_b += b;
 					average_g += g;
@@ -267,10 +268,10 @@ void calculate_mosaic_OPENMP(int *red, int *green, int *blue, int *gr, int *gg, 
 			for (int ii = i; ii< (i + c) && ii<x; ii++) {
 				for (int jj = j; jj<(j + c) && jj<y; jj++) {
 					int position = (ii * y) + jj;
-
-					red[position] = average_r;
-					blue[position] = average_b;
-					green[position] = average_g;
+					input_image[position].x = average_r;
+					input_image[position].y = average_g;
+					input_image[position].z = average_b;
+					
 				}
 			}
 		}
@@ -283,8 +284,7 @@ void calculate_mosaic_OPENMP(int *red, int *green, int *blue, int *gr, int *gg, 
 	*gb = global_average_b;
 }
 
-__global__ void image_func_big_c(int * red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc) {
-	//const int ccc = cc * cc;
+__global__ void image_func_big_c(uchar4 *image_cuda, int row, int column, const int cc) {
 	int index_x = (cc*blockIdx.x) + threadIdx.x;
 	int index_y = cc * blockIdx.y;
 	extern __shared__ int unified_arr[];
@@ -320,15 +320,15 @@ __global__ void image_func_big_c(int * red_cuda, int *green_cuda, int *blue_cuda
 	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
 		if (index_x >= column)continue;
 		int position = (i*column) + index_x;
-		atomicAdd(&red_s, red_cuda[position]);
-		atomicAdd(&blue_s, blue_cuda[position]);
-		atomicAdd(&green_s, green_cuda[position]);
-
+		atomicAdd(&red_s, image_cuda[position].x);
+		atomicAdd(&green_s, image_cuda[position].y);
+		atomicAdd(&blue_s, image_cuda[position].z);
 		if ((threadIdx.x + 1024) < (r_c) ) {
 			position = (i*column) + (index_x + 1024);
-			atomicAdd(&red_s, red_cuda[position]);
-			atomicAdd(&blue_s, blue_cuda[position]);
-			atomicAdd(&green_s, green_cuda[position]);
+			atomicAdd(&red_s, image_cuda[position].x);
+			atomicAdd(&green_s, image_cuda[position].y);
+			atomicAdd(&blue_s, image_cuda[position].z);
+			
 		}
 
 
@@ -337,15 +337,15 @@ __global__ void image_func_big_c(int * red_cuda, int *green_cuda, int *blue_cuda
 	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
 		if (index_x >= column)continue;
 		int position = (i*column) + index_x;
-		red_cuda[position] = (red_s/ (h_c*r_c));
-		green_cuda[position] = (green_s/ (h_c*r_c));
-		blue_cuda[position] = (blue_s/ (h_c*r_c));
+		image_cuda[position].x = (red_s/ (h_c*r_c));
+		image_cuda[position].y = (green_s/ (h_c*r_c));
+		image_cuda[position].z = (blue_s/ (h_c*r_c));
 
 		if ((threadIdx.x + 1024) < cc) {
 			position = (i*column) + (index_x + 1024);
-			red_cuda[position]= red_s / (h_c*r_c);
-			green_cuda[position]= green_s / (h_c*r_c);
-			blue_cuda[position]= blue_s / (h_c*r_c);
+			image_cuda[position].x= red_s / (h_c*r_c);
+			image_cuda[position].y= green_s / (h_c*r_c);
+			image_cuda[position].z= blue_s / (h_c*r_c);
 		}
 
 
@@ -356,7 +356,7 @@ __global__ void image_func_big_c(int * red_cuda, int *green_cuda, int *blue_cuda
 
 
 
-__global__ void image_func_optimized_reduction(int * red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc) {
+__global__ void image_func_optimized_reduction(uchar4 *image_cuda, int row, int column, const int cc) {
 	int index_x = (blockDim.x*blockIdx.x) + threadIdx.x;
 	int index_y = cc * blockIdx.y;
 	extern __shared__ int unified_arr[];
@@ -381,9 +381,9 @@ __global__ void image_func_optimized_reduction(int * red_cuda, int *green_cuda, 
 		if (index_x >= column)continue;
 
 		int position = (i*column) + index_x;
-		unified_arr[threadIdx.x]+=red_cuda[position];
-		unified_arr[threadIdx.x + cc]+=green_cuda[position];
-		unified_arr[threadIdx.x + cc + cc]+=blue_cuda[position];
+		unified_arr[threadIdx.x]+=image_cuda[position].x;
+		unified_arr[threadIdx.x + cc]+=image_cuda[position].y;
+		unified_arr[threadIdx.x + cc + cc]+=image_cuda[position].z;
 	}
 	__syncthreads();
 	for (unsigned int stride = 1; stride < blockDim.x; stride *= 2) {
@@ -398,15 +398,15 @@ __global__ void image_func_optimized_reduction(int * red_cuda, int *green_cuda, 
 	for (int i = index_y; i < (index_y + cc) && (i < row); i++) {
 		if (index_x >= column)continue;
 		int position = (i*column) + index_x;
-		red_cuda[position] = (unified_arr[0] / (h_c*r_c));
-		green_cuda[position] = (unified_arr[cc] / (h_c*r_c));
-		blue_cuda[position] = (unified_arr[cc+cc] / (h_c*r_c));
+		image_cuda[position].x = (unified_arr[0] / (h_c*r_c));
+		image_cuda[position].y = (unified_arr[cc] / (h_c*r_c));
+		image_cuda[position].z = (unified_arr[cc+cc] / (h_c*r_c));
 	}
 }
 
 
 
-__global__ void image_func_optimized(int * red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc) {
+__global__ void image_func_optimized(uchar4 *image_cuda, int row, int column, const int cc) {
 	const int ccc = cc * cc;
 	int index_x = (blockDim.x*blockIdx.x) + threadIdx.x;
 	int index_y = cc * blockIdx.y;
@@ -430,18 +430,18 @@ __global__ void image_func_optimized(int * red_cuda, int *green_cuda, int *blue_
 		if (index_x >= column)continue;
 		
 		int position = (i*column) + index_x;
-		atomicAdd(&red_s, red_cuda[position]);
-		atomicAdd(&green_s, green_cuda[position]);
-		atomicAdd(&blue_s, blue_cuda[position]);
+		atomicAdd(&red_s, image_cuda[position].x);
+		atomicAdd(&green_s, image_cuda[position].y);
+		atomicAdd(&blue_s, image_cuda[position].z);
 	}
 	__syncthreads();
 	
 	for(int i = index_y; i < (index_y + cc) && (i < row); i++) {
 		if (index_x >=column)continue;
 		int position = (i*column) + index_x;
-		red_cuda[position] = (red_s / (h_c*r_c));
-		green_cuda[position] = (green_s / (h_c*r_c));
-		blue_cuda[position] = (blue_s / (h_c*r_c));
+		image_cuda[position].x = (red_s / (h_c*r_c));
+		image_cuda[position].y = (green_s / (h_c*r_c));
+		image_cuda[position].z = (blue_s / (h_c*r_c));
 	}
 
 
@@ -531,20 +531,24 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int r
 }
 
 
-float cuda_mode(int *red, int *green, int *blue) {
-	int* red_cuda, *green_cuda, *blue_cuda;
+float cuda_mode(uchar4 *input_image) {
+//	int* red_cuda, *green_cuda, *blue_cuda;
+	uchar4 *image_cuda;
 	int size_of_image = x * y * sizeof(int);
 	//printf("Dimensions of image is: %d %d \n\n", x, y);
 	
-	cudaMalloc((void **)&red_cuda, size_of_image);
-	cudaMalloc((void **)&green_cuda, size_of_image);
-	cudaMalloc((void **)&blue_cuda, size_of_image);
+//	cudaMalloc((void **)&red_cuda, size_of_image);
+	//cudaMalloc((void **)&green_cuda, size_of_image);
+	//cudaMalloc((void **)&blue_cuda, size_of_image);
+	
+	cudaMalloc((void **)&image_cuda, size_of_image);
 	checkCUDAError("Memory allocation");
 
 	// copy host input to device input 
-	cudaMemcpy(red_cuda, red, size_of_image, cudaMemcpyHostToDevice);
-	cudaMemcpy(green_cuda, green, size_of_image, cudaMemcpyHostToDevice);
-	cudaMemcpy(blue_cuda, blue, size_of_image, cudaMemcpyHostToDevice);
+//	cudaMemcpy(red_cuda, red, size_of_image, cudaMemcpyHostToDevice);
+//	cudaMemcpy(green_cuda, green, size_of_image, cudaMemcpyHostToDevice);
+//	cudaMemcpy(blue_cuda, blue, size_of_image, cudaMemcpyHostToDevice);
+	cudaMemcpy(image_cuda, input_image, size_of_image, cudaMemcpyHostToDevice);
 	checkCUDAError("Input transfer to device");
 
 	printf("Value of c is %d\n", c);
@@ -569,14 +573,15 @@ float cuda_mode(int *red, int *green, int *blue) {
 	if (c > 1024) {
 		printf("C is greater than 1024 hence calling another kernel function for big c values...\n");
 		dim3 threadsPerBlock(1024, 1, 1);
-		image_func_big_c << <blocksPerGrid, threadsPerBlock, sm_size >> > (red_cuda, green_cuda, blue_cuda, y, x, c);
+		image_func_big_c << <blocksPerGrid, threadsPerBlock, sm_size >> > (image_cuda, y, x, c);
 	}
 	else {
 		printf("C is less than 1024 calling function for this C..\n");
 		dim3 threadsPerBlock(c, 1, 1);
-		image_func_optimized_reduction << <blocksPerGrid, threadsPerBlock, sm_size>> > (red_cuda, green_cuda, blue_cuda, y, x, c);
+		//image_func_optimized << <blocksPerGrid, threadsPerBlock >> > (image_cuda, y, x, c);
+		image_func_optimized_reduction << <blocksPerGrid, threadsPerBlock, sm_size>> > (image_cuda, y, x, c);
 	}
-	//image_func_optimized << <blocksPerGrid, threadsPerBlock >> > (red_cuda, green_cuda, blue_cuda, y, x, c);
+	
 	//	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda, x, y, c);
 
 
@@ -592,25 +597,27 @@ float cuda_mode(int *red, int *green, int *blue) {
 	cudaEventDestroy(stop);
 
 	// copy the gpu output back to the host 
-	cudaMemcpy(red, red_cuda, size_of_image, cudaMemcpyDeviceToHost);
-	cudaMemcpy(green, green_cuda, size_of_image, cudaMemcpyDeviceToHost);
-	cudaMemcpy(blue, blue_cuda, size_of_image, cudaMemcpyDeviceToHost);
+	cudaMemcpy(input_image, image_cuda, size_of_image, cudaMemcpyDeviceToHost);
+	//cudaMemcpy(red, red_cuda, size_of_image, cudaMemcpyDeviceToHost);
+	//cudaMemcpy(green, green_cuda, size_of_image, cudaMemcpyDeviceToHost);
+	//cudaMemcpy(blue, blue_cuda, size_of_image, cudaMemcpyDeviceToHost);
 	checkCUDAError("Result transfer to host");
 
 
 
 	//free device memory
-	cudaFree(red_cuda);
-	cudaFree(green_cuda);
-	cudaFree(blue_cuda);
+	cudaFree(image_cuda);
+	//cudaFree(red_cuda);
+	//cudaFree(green_cuda);
+	//cudaFree(blue_cuda);
 	checkCUDAError("Free memory");
 	return milliseconds;
 }
-void print_image_pretty(int *red, int *green, int *blue) {
+void print_image_pretty(uchar4 *image) {
 	for (int i = 0; i < x; i++) {
 		for (int j = 0; j < y; j++) {
 			int position = (i * y) + j;
-			printf("%d %d %d    ", red[position], green[position], blue[position]);
+			printf("%d %d %d    ", image[position].x, image[position].y, image[position].y);
 		}
 		printf("\n");
 
@@ -626,24 +633,22 @@ int main(int argc, char *argv[]) {
 	printf("Reading image");
 	FILE *fp = fopen(input_file_name, "r");
 	get_image_dimensions(fp, &x, &y);
+	uchar4* input_image = (uchar4*)malloc(x*y * sizeof(uchar4));
 
-	int* red = (int*)malloc(x*y * sizeof(int));
-	int* green = (int*)malloc(x *y * sizeof(int));
-	int* blue = (int*)malloc(x *y * sizeof(int));
-	int *copy_red = red;
-	int *copy_green = green;
-	int *copy_blue = blue;
+	uchar4* red = (uchar4*)malloc(x*y * sizeof(uchar4));
+	uchar4* green = (uchar4*)malloc(x *y * sizeof(uchar4));
+	uchar4* blue = (uchar4*)malloc(x *y * sizeof(uchar4));
+	uchar4 *copy_red = red;
+	uchar4 *copy_green = green;
+	uchar4 *copy_blue = blue;
 
 	if (file_mode == 1) {
 		printf("the image is plain text");
-		read_plain_image(red, green, blue, fp);
-		//print_image_pretty(red, green, blue);
+		read_plain_image(input_image, fp);
 	}
 	else {
 		printf("the image is binary\n");
-		read_binary_image(red, green, blue);
-		//print_image_pretty(red, green, blue);
-
+		read_binary_image(input_image);
 	}
 	fclose(fp);
 
@@ -664,21 +669,21 @@ int main(int argc, char *argv[]) {
 		printf("\n");
 		//	print_image_pretty(red, green, blue);
 		printf("this is the image");
-		calculate_mosaic_CPU(red, green, blue, &gr, &gg, &gb);
+		calculate_mosaic_CPU(input_image, &gr, &gg, &gb);
 		double time = omp_get_wtime() - start_time;
 		if (OUTPUT_FORMAT_BINARY) {
 			printf("Writing Binary File: \n");
-			writing_binary_file(red, green, blue);
+			writing_binary_file(input_image);
 		}
 		else {
 			printf("Writing plain text: \n");
 			//	print_image_pretty(red, green, blue);
-			writing_plain_text_file(red, green, blue);
+			writing_plain_text_file(input_image);
 		}
 
 		printf("CPU Average image colour red = %d, green = %d, blue = %d \n", gr, gg, gb);
 
-		printf("CPU mode execution time took %f s and %f ms\n", time, time * 1000);
+		printf("CPU mode execution time took %f ms\n", time * 1000);
 		break;
 	}
 	case (OPENMP): {
@@ -687,15 +692,15 @@ int main(int argc, char *argv[]) {
 		double start_time = omp_get_wtime();
 		printf("USING OPENMP");
 		int gr, gg, gb;
-		calculate_mosaic_OPENMP(red, green, blue, &gr, &gg, &gb);
+		calculate_mosaic_OPENMP(input_image, &gr, &gg, &gb);
 		double time = omp_get_wtime() - start_time;
 		if (OUTPUT_FORMAT_BINARY) {
 			printf("Writing Binary File: \n");
-			writing_binary_file(red, green, blue);
+			writing_binary_file(input_image);
 		}
 		else {
 			printf("Writing plain text: \n");
-			writing_plain_text_file(red, green, blue);
+			writing_plain_text_file(input_image);
 		}
 		printf("OPENMP Average image colour red = %d, green = %d, blue = %d \n", gr, gg, gb);
 		printf("OPENMP mode execution time %f ms\n", time * 1000);
@@ -703,15 +708,15 @@ int main(int argc, char *argv[]) {
 	}
 	case (CUDA): {
 		printf("CUDA MODE\n");
-		float time_taken=cuda_mode(red, green, blue);
+		float time_taken=cuda_mode(input_image);
 		printf("CUDA mode execution time took  %f ms\n",time_taken);
 		if (OUTPUT_FORMAT_BINARY){
 			printf("Writing Binary File: \n");
-			writing_binary_file(red, green, blue);
+			writing_binary_file(input_image);
 		}
 		else {
 			printf("Writing plain text: \n");
-			writing_plain_text_file(red, green, blue);
+			writing_plain_text_file(input_image);
 		}
 		
 
@@ -721,7 +726,7 @@ int main(int argc, char *argv[]) {
 		double start_time = omp_get_wtime();
 		int gr, gg, gb;
 
-		calculate_mosaic_CPU(red, green, blue, &gr, &gg, &gb);
+//		calculate_mosaic_CPU(red, green, blue, &gr, &gg, &gb);
 		double time1 = omp_get_wtime() - start_time;
 
 
@@ -730,51 +735,46 @@ int main(int argc, char *argv[]) {
 		get_image_dimensions(fp, &x, &y);
 		if (file_mode == 1) {
 			printf("the image is plain text");
-			read_plain_image(red, green, blue, fp);
+	//		read_plain_image(red, green, blue, fp);
 			//print_image_pretty(red, green, blue);
 		}
 		else {
 			printf("the image is binary\n");
-			read_binary_image(red, green, blue);
+		//	read_binary_image(red, green, blue);
 			//print_image_pretty(red, green, blue);
 
 		}
 		fclose(fp);
 
 		start_time = omp_get_wtime();
-		calculate_mosaic_OPENMP(red, green, blue, &gr, &gg, &gb);
+	//	calculate_mosaic_OPENMP(red, green, blue, &gr, &gg, &gb);
 		double time2 = omp_get_wtime() - start_time;
 		printf("ALL Average image colour red = %d, green = %d, blue = %d \n", gr, gg, gb);
 		printf("CPU TIME IS %f milliseconds.. OPENMP time is: %f\n\n", time1 * 1000, time2 * 1000);
 
 		if (OUTPUT_FORMAT_BINARY) {
 			printf("Writing Binary File: \n");
-			writing_binary_file(red, green, blue);
+		//	writing_binary_file(red, green, blue);
 		}
 		else {
 			printf("Writing plain text: \n");
-			writing_plain_text_file(red, green, blue);
+			//writing_plain_text_file(red, green, blue);
 		}
 
 		FILE *fp1 = fopen(input_file_name, "r");
 		get_image_dimensions(fp1, &x, &y);
 		if (file_mode == 1) {
 			printf("the image is plain text");
-			read_plain_image(red, green, blue, fp1);
+		//	read_plain_image(red, green, blue, fp1);
 			//print_image_pretty(red, green, blue);
 		}
 		else {
 			printf("the image is binary\n");
-			read_binary_image(red, green, blue);
+	//		read_binary_image(red, green, blue);
 			//print_image_pretty(red, green, blue);
 
 		}
 		fclose(fp);
-
-
-
-
-
 
 		break;
 	}
