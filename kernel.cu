@@ -36,15 +36,8 @@ void calculate_mosaic_OPENMP(uchar3 *, int * ,int *, int *);
 
 char *input_file_name;//inputfilename string 
 char *output_file_name;//output filename string
-char *output_format = "PPM_BINARY";//output format by default set to binary
+char *output_format = (char *)"PPM_BINARY";//output format by default set to binary
 bool OUTPUT_FORMAT_BINARY = 1;//1 means binary, zero means plain text default binary or 1
-typedef struct pixel {// pixel structure to save each cell Red,green,blue value
-	int r;
-	int g;
-	int b;
-}pixel;
-
-
 void checkCUDAError(const char*);
 
 // this function is used for big C values to be particular more than 1024
@@ -86,35 +79,34 @@ __global__ void image_func_big_c(uchar3 *image_cuda, int row, int column, const 
 		atomicAdd(&blue_val_cuda, image_cuda[position].z);
 
 
-
-		if ((threadIdx.x + 1024) < (r_c)) {
-			position = (i*column) + (index_x + 1024);
+		int start_with = 1024;
+		while ((threadIdx.x + start_with) < (r_c)) {
+			position = (i*column) + (index_x + start_with);
 			atomicAdd(&red_s, image_cuda[position].x);
 			atomicAdd(&green_s, image_cuda[position].y);
 			atomicAdd(&blue_s, image_cuda[position].z);
-
 			atomicAdd(&red_val_cuda, image_cuda[position].x);
 			atomicAdd(&green_val_cuda, image_cuda[position].y);
 			atomicAdd(&blue_val_cuda, image_cuda[position].z);
-
-
+			start_with += 1024;
 		}
-
-
 	}
-
+	__syncthreads();
 	for (int i = index_y; i < (index_y + c) && (i < row); i++) {
 		if (index_x >= column)continue;
 		int position = (i*column) + index_x;
 		image_cuda[position].x = (red_s / (h_c*r_c));
 		image_cuda[position].y = (green_s / (h_c*r_c));
 		image_cuda[position].z = (blue_s / (h_c*r_c));
-
-		if ((threadIdx.x + 1024) < c) {
-			position = (i*column) + (index_x + 1024);
+		
+		
+		int start_with = 1024;
+		while((threadIdx.x +start_with) < c) {
+			position = (i*column) + (index_x + start_with);
 			image_cuda[position].x = red_s / (h_c*r_c);
 			image_cuda[position].y = green_s / (h_c*r_c);
 			image_cuda[position].z = blue_s / (h_c*r_c);
+			start_with += 1024;
 		}
 
 
@@ -187,7 +179,7 @@ __global__ void image_func_optimized_reduction(uchar3 *image_cuda, int row, int 
 }
 
 
-
+// a part of the previous implementation while trying to solve the assignment. 
 __global__ void image_func_optimized(uchar3 *image_cuda, int row, int column, const int cc) {
 	int index_x = (blockDim.x*blockIdx.x) + threadIdx.x;
 	int index_y = cc * blockIdx.y;
@@ -228,7 +220,7 @@ __global__ void image_func_optimized(uchar3 *image_cuda, int row, int column, co
 
 }
 
-
+// a part of the previous implementation while trying to solve the assignment
 __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int row, int column, const int cc)
 {
 	const int ccc = cc * cc;
@@ -250,17 +242,12 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int r
 	int red_s = 0;
 	int green_s = 0;
 	int blue_s = 0;
-	//printf("__%d %d__", index_x, index_y);
-
 	for (int i = index_x; i < index_x + cc; i++) {
-	for (int j = index_y; j < index_y + cc; j++) {
-
-	//	printf("%d %d __", i, j);
-	red_s += red_cuda[j*column + i];
-	green_s += green_cuda[j*column + i];
-	blue_s += blue_cuda[j*column + i];
-	}
-	//	printf("\n");
+		for (int j = index_y; j < index_y + cc; j++) {
+			red_s += red_cuda[j*column + i];
+			green_s += green_cuda[j*column + i];
+			blue_s += blue_cuda[j*column + i];
+		}
 	}
 	//printf("\n\n\n");
 	//atomicAdd(&red_s, red_cuda[position]);
@@ -339,7 +326,7 @@ float cuda_mode(uchar3 *input_image, unsigned long long int *avg_r, unsigned lon
 	//setting up the dimensions of the block and threads
 	int blockdimx = x / c;
 	int blockdimy = y / c;
-	if (x%c != 0) {
+	if (x%c != 0) {//incase if the value of c is not divisible by the dimensions.
 		blockdimx += 1;
 	}
 	if (y%c != 0) {
@@ -364,8 +351,8 @@ float cuda_mode(uchar3 *input_image, unsigned long long int *avg_r, unsigned lon
 	}
 	
 	
-	//wait for all threads to complete
-	cudaThreadSynchronize();
+	//wait for all threads to complete in the gpu
+	cudaDeviceSynchronize();
 	checkCUDAError("Kernel execution");
 
 	cudaEventRecord(stop);
@@ -400,7 +387,7 @@ float cuda_mode(uchar3 *input_image, unsigned long long int *avg_r, unsigned lon
 	return milliseconds;
 }
 
-
+//Mainly for debugging purposes
 void print_image_pretty(uchar3 *image) {
 	for (int i = 0; i < x; i++) {
 		for (int j = 0; j < y; j++) {
@@ -432,12 +419,14 @@ int main(int argc, char *argv[]) {
 	unsigned long long int avg_r, avg_g, avg_b;
 
 	if (file_mode == 1) {
+		//if the filemode is for plain image then read the plain image
 		read_plain_image(input_image, fp);
 	}
 	else {
+		//if the filemode is for binary then read binary image.
 		read_binary_image(input_image);
 	}
-	fclose(fp);
+	fclose(fp);//closing the filepointer
 
 	switch (execution_mode) {
 	case (CPU): {
@@ -799,19 +788,22 @@ void writing_binary_file(uchar3 *image) {
 //to calculate the mosaic and average in CPU mode
 //the gr ,gg,and gb is used to get the average of r g and b values
 void calculate_mosaic_CPU(uchar3 *input_image, int *gr, int *gg, int *gb) {
+	int cc = c;
 	printf("STARTING THE MOSAIC OPERATION USING CPU APPROACH\n\n\n");
 	int global_average_r = 0;//initialized to zero
 	int global_average_g = 0;
 	int global_average_b = 0;
-	for (int i = 0; i<x; i += c) {//accesing matrix by squares
-		for (int j = 0; j<y; j += c) {
+	for (int i = 0; i<x; i += cc) {//accesing matrix by squares
+		for (int j = 0; j<y; j += cc) {
 			int average_r, average_b, average_g;
 			average_b = 0;
 			average_r = 0;
 			average_g = 0;
 			int cell_count = 0;
-			for (int ii = i; (ii< (i + c)) && (ii<x); ii++) {//accessing the squares
-				for (int jj = j; jj<(j + c) && jj<y; jj++) {
+			int ii = 0;
+			int jj = 0;
+			for (ii = i; (ii< (i + cc)) && (ii<x); ii++) {//accessing the squares
+				for (jj = j; jj<(j + cc) && jj<y; jj++) {
 					int position = (ii * y) + jj;
 					int r = input_image[position].x;
 					int g = input_image[position].y;
@@ -830,8 +822,8 @@ void calculate_mosaic_CPU(uchar3 *input_image, int *gr, int *gg, int *gb) {
 			average_g = average_g / (cell_count);//averaging
 
 												 //updating
-			for (int ii = i; ii< (i + c) && ii<x; ii++) {//updating the value in main matrix
-				for (int jj = j; jj<(j + c) && jj<y; jj++) {
+			for (int ii = i; ii< (i + cc) && ii<x; ii++) {//updating the value in main matrix
+				for (int jj = j; jj<(j + cc) && jj<y; jj++) {
 					int position = (ii * y) + jj;
 					input_image[position].x = average_r;
 					input_image[position].y = average_g;
@@ -870,17 +862,18 @@ void calculate_mosaic_OPENMP(uchar3 *input_image, int *gr, int *gg, int *gb) {
 	int average_r = 0;
 	int average_g = 0;
 	int average_b = 0;
+	int cc = c;
 
 #pragma omp parallel for default(shared) num_threads(NUM_THREADS) private(i,j,ii,jj) reduction(+: average_r, average_b, average_g,cell_count,global_average_r,global_average_g,global_average_b)
-	for (i = 0; i<x; i += c) {
-		for (j = 0; j<y; j += c) {
+	for (i = 0; i<x; i += cc) {
+		for (j = 0; j<y; j += cc) {
 			//int average_r, average_b, average_g;
 			average_b = 0;
 			average_r = 0;
 			average_g = 0;
 			cell_count = 0;
-			for (ii = i; ii< (i + c) && ii<x; ii++) {
-				for (jj = j; jj<(j + c) && jj<y; jj++) {
+			for (ii = i; ii< (i + cc) && ii<x; ii++) {
+				for (jj = j; jj<(j + cc) && jj<y; jj++) {
 					int position = (ii * y) + jj;
 					int r = input_image[position].x;
 					int g = input_image[position].y;
@@ -899,8 +892,8 @@ void calculate_mosaic_OPENMP(uchar3 *input_image, int *gr, int *gg, int *gb) {
 			average_g = average_g / (cell_count);
 
 			//updating
-			for (int ii = i; ii< (i + c) && ii<x; ii++) {
-				for (int jj = j; jj<(j + c) && jj<y; jj++) {
+			for (int ii = i; ii< (i + cc) && ii<x; ii++) {
+				for (int jj = j; jj<(j + cc) && jj<y; jj++) {
 					int position = (ii * y) + jj;
 					input_image[position].x = average_r;
 					input_image[position].y = average_g;
