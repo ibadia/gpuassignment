@@ -27,12 +27,12 @@ __device__ unsigned long long int red_val_cuda, green_val_cuda, blue_val_cuda; /
 //function declaration for file reading and previous cpu openmp codes
 int check_file_mode();
 void get_image_dimensions(FILE *fp, int *x, int *y);
-void read_plain_image(uchar4 *, FILE *);
-void read_binary_image(uchar4 *);
-void writing_plain_text_file(uchar4 *);
-void writing_binary_file(uchar4 *image);
-void calculate_mosaic_CPU(uchar4 *, int *, int *, int *);
-void calculate_mosaic_OPENMP(uchar4 *, int * ,int *, int *);
+void read_plain_image(uchar3 *, FILE *);
+void read_binary_image(uchar3 *);
+void writing_plain_text_file(uchar3 *);
+void writing_binary_file(uchar3 *image);
+void calculate_mosaic_CPU(uchar3 *, int *, int *, int *);
+void calculate_mosaic_OPENMP(uchar3 *, int * ,int *, int *);
 
 char *input_file_name;//inputfilename string 
 char *output_file_name;//output filename string
@@ -47,18 +47,23 @@ typedef struct pixel {// pixel structure to save each cell Red,green,blue value
 
 void checkCUDAError(const char*);
 
-
-__global__ void image_func_big_c(uchar4 *image_cuda, int row, int column, const int c) {
+// this function is used for big C values to be particular more than 1024
+__global__ void image_func_big_c(uchar3 *image_cuda, int row, int column, const int c) {
 	int index_x = (c*blockIdx.x) + threadIdx.x;
 	int index_y = c * blockIdx.y;
+
+	//initializing the shared variable to keep the sum
 	__shared__ unsigned int red_s, blue_s, green_s;
 	
+
+	//assigning them all to zero.
 	red_s = 0;
 	blue_s = 0;
 	green_s = 0;
 	__syncthreads();
 
 
+	//for boundary conditions for partial mosaic
 	int h_c = c;
 	if ((index_y + c) >= row) {
 		h_c = row - index_y;
@@ -68,7 +73,7 @@ __global__ void image_func_big_c(uchar4 *image_cuda, int row, int column, const 
 		r_c = column - (c*blockIdx.x);
 	}
 
-
+	//going row wise down to sum up all values
 	for (int i = index_y; i < (index_y + c) && (i < row); i++) {
 		if (index_x >= column)continue;
 		int position = (i*column) + index_x;
@@ -120,7 +125,7 @@ __global__ void image_func_big_c(uchar4 *image_cuda, int row, int column, const 
 
 
 
-__global__ void image_func_optimized_reduction(uchar4 *image_cuda, int row, int column, const int c) {
+__global__ void image_func_optimized_reduction(uchar3 *image_cuda, int row, int column, const int c) {
 	int index_x = (blockDim.x*blockIdx.x) + threadIdx.x;
 	int index_y = c * blockIdx.y;
 
@@ -183,7 +188,7 @@ __global__ void image_func_optimized_reduction(uchar4 *image_cuda, int row, int 
 
 
 
-__global__ void image_func_optimized(uchar4 *image_cuda, int row, int column, const int cc) {
+__global__ void image_func_optimized(uchar3 *image_cuda, int row, int column, const int cc) {
 	int index_x = (blockDim.x*blockIdx.x) + threadIdx.x;
 	int index_y = cc * blockIdx.y;
 
@@ -307,32 +312,31 @@ __global__ void image_func(int *red_cuda, int *green_cuda, int *blue_cuda, int r
 }
 
 // the function for handling the cuda input.
-float cuda_mode(uchar4 *input_image, unsigned long long int *avg_r, unsigned long long int *avg_g, unsigned long long int *avg_b) {
+float cuda_mode(uchar3 *input_image, unsigned long long int *avg_r, unsigned long long int *avg_g, unsigned long long int *avg_b) {
 	
-	uchar4 *image_cuda;
-	int size_of_image = x * y * sizeof(uchar4);
+	//declaring the variable to be passed to cuda
+	uchar3 *image_cuda;
+	int size_of_image = x * y * sizeof(uchar3);
+	
+	//for calculating the global average
 	*avg_r = 0;
 	*avg_g = 0;
 	*avg_b = 0;
 	
 
-	
+	//allocating the memory in the GPU
 	cudaMalloc((void **)&image_cuda, size_of_image);
 	checkCUDAError("Memory allocation");
 
 	// copy host input to device input 
-	
 	cudaMemcpyToSymbol(red_val_cuda, avg_r, sizeof(unsigned long long int));
 	cudaMemcpyToSymbol(green_val_cuda, avg_g, sizeof(unsigned long long int));
 	cudaMemcpyToSymbol(blue_val_cuda, avg_b, sizeof(unsigned long long int));
-
-
 	cudaMemcpy(image_cuda, input_image, size_of_image, cudaMemcpyHostToDevice);
 	checkCUDAError("Input transfer to device");
 
-	//printf("Value of c is %d\n", c);
-	//printf("Starting kernel\n");
-
+	
+	//setting up the dimensions of the block and threads
 	int blockdimx = x / c;
 	int blockdimy = y / c;
 	if (x%c != 0) {
@@ -341,31 +345,25 @@ float cuda_mode(uchar4 *input_image, unsigned long long int *avg_r, unsigned lon
 	if (y%c != 0) {
 		blockdimy += 1;
 	}
-	//printf("\nThe block dimensions set are: %d %d\n", blockdimx, blockdimy);
-
+	
+	//CudaEvent_T is used for calculating the time taken by the kernel
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
 	cudaEventCreate(&stop);
 	cudaEventRecord(start);
 	dim3 blocksPerGrid(blockdimx, blockdimy, 1);
-	unsigned int sm_size = sizeof(float3)*c ;
-	if (c > 1024) {
-		//printf("C is greater than 1024 hence calling another kernel function for big c values...\n");
+	
+	unsigned int sm_size = sizeof(float3)*c; //creating the size of shared memory that will be required for the data.
+	if (c > 1024) {//calling the required kernel made specifically for big c
 		dim3 threadsPerBlock(1024, 1, 1);
 		image_func_big_c << <blocksPerGrid, threadsPerBlock >> > (image_cuda, y, x, c);
 	}
-	else {
-	//	printf("C is less than 1024 calling function for this C..\n");
+	else {//calling the normal kernel
 		dim3 threadsPerBlock(c, 1, 1);
-		//image_func_optimized << <blocksPerGrid, threadsPerBlock >> > (image_cuda, y, x, c);
 		image_func_optimized_reduction << <blocksPerGrid, threadsPerBlock, sm_size >> > (image_cuda, y, x, c);
 	}
 	
 	
-
-	//	image_func << <blocksPerGrid, threadsPerBlock >> >(red_cuda, green_cuda, blue_cuda, x, y, c);
-
-
 	//wait for all threads to complete
 	cudaThreadSynchronize();
 	checkCUDAError("Kernel execution");
@@ -396,13 +394,14 @@ float cuda_mode(uchar4 *input_image, unsigned long long int *avg_r, unsigned lon
 
 	//free device memory
 	cudaFree(image_cuda);
-	//cudaFree(red_cuda);
-	//cudaFree(green_cuda);
-	//cudaFree(blue_cuda);
 	checkCUDAError("Free memory");
+	
+	//returning the time taken by the cuda.
 	return milliseconds;
 }
-void print_image_pretty(uchar4 *image) {
+
+
+void print_image_pretty(uchar3 *image) {
 	for (int i = 0; i < x; i++) {
 		for (int j = 0; j < y; j++) {
 			int position = (i * y) + j;
@@ -420,35 +419,26 @@ int main(int argc, char *argv[]) {
 		return 1;
 	int file_mode = check_file_mode();//checks the filemode 
 	printf("Reading image.. \n");
+	//opening file
 	FILE *fp = fopen(input_file_name, "r");
+
+	//for getting image dimensions to initiate the for loop
 	get_image_dimensions(fp, &x, &y);
 	printf("The Dimensions of the image is: %d %d\n", x, y);
-	uchar4* input_image = (uchar4*)malloc(x*y * sizeof(uchar4));
+	
+	//creating a pointer for taking in the input image in char3 
+	uchar3* input_image = (uchar3*)malloc(x*y * sizeof(uchar3));
+	
 	unsigned long long int avg_r, avg_g, avg_b;
 
-	uchar4* red = (uchar4*)malloc(x*y * sizeof(uchar4));
-	uchar4* green = (uchar4*)malloc(x *y * sizeof(uchar4));
-	uchar4* blue = (uchar4*)malloc(x *y * sizeof(uchar4));
-	uchar4 *copy_red = red;
-	uchar4 *copy_green = green;
-	uchar4 *copy_blue = blue;
-
 	if (file_mode == 1) {
-		//printf("the image is plain text");
 		read_plain_image(input_image, fp);
 	}
 	else {
-		//printf("the image is binary\n");
 		read_binary_image(input_image);
 	}
 	fclose(fp);
 
-
-
-
-
-
-	//TODO: execute the mosaic filter based on the mode
 	switch (execution_mode) {
 	case (CPU): {
 		printf("###############################__USING CPU__############################################n\n");
@@ -577,9 +567,6 @@ int main(int argc, char *argv[]) {
 
 
 
-	free(copy_red);
-	free(copy_green);
-	free(copy_blue);
 	return 0;
 }
 
@@ -630,7 +617,6 @@ int process_command_line(int argc, char *argv[]) {
 
 	}
 
-//	char *mode = argv[3];
 	input_file_name = argv[4];
 	output_file_name = argv[6];
 	char *mode1 = argv[7];
@@ -644,16 +630,12 @@ int process_command_line(int argc, char *argv[]) {
 		}
 	}
 
-
-
 	int debug = 1;// For sanity check printing the user input given
 	if (debug == 1) {
 		printf("Some description of user input: \n");
 		printf("Input filename given: %s \n", input_file_name);
 		printf("Output_filename_ given: %s \n", output_file_name);
 		printf("The value of C given is %d\n", c);
-		//	printf("output_file_mode: %s \n ", output_format);
-		//printf(" THE MODE: %d\n", OUTPUT_FORMAT_BINARY);
 	}
 	return SUCCESS;
 
@@ -718,7 +700,7 @@ int check_file_mode() {
 }
 
 
-void read_plain_image(uchar4 *input_image, FILE *fp) {
+void read_plain_image(uchar3 *input_image, FILE *fp) {
 	for (int i = 0; i<x; i++) {
 		for (int j = 0; j<y; j++) {
 			unsigned int r, g, b;
@@ -736,7 +718,7 @@ void read_plain_image(uchar4 *input_image, FILE *fp) {
 
 
 
-void read_binary_image(uchar4 *input_image) {
+void read_binary_image(uchar3 *input_image) {
 	FILE *fp_binary = fopen(input_file_name, "rb");
 	get_image_dimensions(fp_binary, &x, &y);
 	unsigned char currentPixel[3];
@@ -762,7 +744,7 @@ void read_binary_image(uchar4 *input_image) {
 
 
 
-void writing_plain_text_file(uchar4 *image) {
+void writing_plain_text_file(uchar3 *image) {
 	FILE *outfile = fopen(output_file_name, "w");
 	fprintf(outfile, "P3\n");// since it is plain text
 	fprintf(outfile, "# COM4521 Assignment test output\n");
@@ -789,7 +771,7 @@ void writing_plain_text_file(uchar4 *image) {
 
 
 //for writing the binary file, it gets the filename globally and pointer to array
-void writing_binary_file(uchar4 *image) {
+void writing_binary_file(uchar3 *image) {
 	FILE *outfile = fopen(output_file_name, "wb");//using wb parameter for binary
 	fprintf(outfile, "P6\n");//means that is is binary
 	fprintf(outfile, "# COM4521 Assignment test output\n");
@@ -816,7 +798,7 @@ void writing_binary_file(uchar4 *image) {
 
 //to calculate the mosaic and average in CPU mode
 //the gr ,gg,and gb is used to get the average of r g and b values
-void calculate_mosaic_CPU(uchar4 *input_image, int *gr, int *gg, int *gb) {
+void calculate_mosaic_CPU(uchar3 *input_image, int *gr, int *gg, int *gb) {
 	printf("STARTING THE MOSAIC OPERATION USING CPU APPROACH\n\n\n");
 	int global_average_r = 0;//initialized to zero
 	int global_average_g = 0;
@@ -872,7 +854,7 @@ void calculate_mosaic_CPU(uchar4 *input_image, int *gr, int *gg, int *gb) {
 
 
 
-void calculate_mosaic_OPENMP(uchar4 *input_image, int *gr, int *gg, int *gb) {
+void calculate_mosaic_OPENMP(uchar3 *input_image, int *gr, int *gg, int *gb) {
 	printf("STARTING THE MOSAIC OPERATION USING OPENMP APPROACH\n\n\n");
 	int global_average_r = 0;
 	int global_average_g = 0;
